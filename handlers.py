@@ -39,7 +39,14 @@ async def handle_message(event, line_bot_api):
         msg = "目前待簽核請假申請：\n"
         for r in requests:
             name = await get_user_name(r["user_id"])
-            msg += f"{name} - {r['start_date']} 至 {r['end_date']} - {r['reason']}\n"
+            
+            # 顯示請假時間段
+            if r.get("start_time") and r.get("end_time"):
+                date_range = f"{r['start_date']} {r['start_time']}～{r['end_time']}"
+            else:
+                date_range = f"{r['start_date']} 至 {r['end_date']}"
+
+            msg += f"{name} - {date_range} - {r['reason']}\n"
             msg += f"👉 /簽核 {r['request_id']} ｜ /拒絕 {r['request_id']}\n\n"
 
         await line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg.strip()))
