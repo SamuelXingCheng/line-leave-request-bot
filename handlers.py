@@ -64,4 +64,4 @@ async def handle_message(event, line_bot_api):
         if success:
             await line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"請假單已{status}。"))
         else:
-            await line_bot_api.reply_message(event.reply_token, TextSendMessage(text
+            await line_bot_api.reply_message(event.reply_token, TextSendMessage(text="查無此請假單。"))
