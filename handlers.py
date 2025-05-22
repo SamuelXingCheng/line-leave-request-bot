@@ -14,11 +14,19 @@ async def handle_message(event, line_bot_api):
         if not data:
             await line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(text="格式錯誤，請使用：/請假 2025-05-20 2025-05-21 原因")
+                TextSendMessage(text="格式錯誤，請使用：\n1️⃣ /請假 2025-05-20 2025-05-21 請假原因\n2️⃣ /請假 2025-05-20 09:00 12:00 請假原因")
             )
             return
 
-        request_id = await save_request(user_id=user_id, **data)
+        request_id = await save_request(
+            user_id=user_id,
+            start_date=data["start_date"],
+            end_date=data["end_date"],
+            start_time=data["start_time"],
+            end_time=data["end_time"],
+            reason=data["reason"]
+        )
+
         msg = build_leave_message(data, request_id)
         await line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
 
