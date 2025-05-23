@@ -3,6 +3,7 @@ from datetime import datetime
 
 # ✅ 支援整天請假與單日區間請假
 import re
+import os
 
 def normalize_date(date_str):
     try:
