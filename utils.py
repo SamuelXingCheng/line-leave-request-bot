@@ -156,6 +156,47 @@ def get_user_display_name(user_id):
     # 可改為查 Firebase 對照表或手動對應
     return f"使用者 {user_id[-4:]}"  # 例如：使用者 3f8a
 
+def calculate_effective_hours(start: datetime, end: datetime) -> float:
+    """計算排除午休後的一段請假時數"""
+    total_seconds = (end - start).total_seconds()
+    overlap_seconds = 0
+
+    rest_start = start.replace(hour=12, minute=0, second=0, microsecond=0)
+    rest_end = start.replace(hour=13, minute=0, second=0, microsecond=0)
+
+    # 計算與午休重疊秒數
+    latest_start = max(start, rest_start)
+    earliest_end = min(end, rest_end)
+    if latest_start < earliest_end:
+        overlap_seconds = (earliest_end - latest_start).total_seconds()
+
+    effective_seconds = max(0, total_seconds - overlap_seconds)
+    return round(effective_seconds / 3600, 2)
+
+
+def summarize_leave_days_and_hours(request_docs) -> str:
+    """
+    傳入 Firestore 請假文件 iterable，回傳：「請假天數共 X 天，時數共 Y 小時」
+    - 天數：依據 start_at.date() ~ end_at.date()
+    - 時數：加總排除午休後的時段
+    """
+    total_hours = 0
+    date_set = set()
+
+    for doc in request_docs:
+        data = doc.to_dict()
+        start = data.get("start_at")
+        end = data.get("end_at")
+        if start and end:
+            # 記錄每個請假的日期（自然日）
+            date_set.add(start.date())
+            total_hours += calculate_effective_hours(start, end)
+
+    total_days = len(date_set)
+    return f"請假天數共 {total_days} 天，時數共 {round(total_hours)} 小時"
+
+
+
 def handle_query_pending_leaves(event, line_bot_api):
     supervisor_id = event.source.user_id
     db = get_db()
@@ -198,21 +239,27 @@ def handle_approve_by_group(event, line_bot_api, group_id, user_name):
         data = doc.to_dict()
         approvals = data.get("approvals", {})
         if approvals.get(supervisor_id) == "pending":
-            # ✅ 只更新資料，不用回覆訊息
             approve(doc, data, supervisor_id, line_bot_api)
-
             approved_count += 1
 
     if approved_count > 0:
+        # ✅ 重新查詢整組資料來統計總請假時間
+        group_docs = db.collection("requests")\
+            .where("request_group_id", "==", group_id)\
+            .stream()
+        
+        summary_text = summarize_leave_days_and_hours(group_docs)
+
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text=f"✅ 已簽核 {user_name} 的請假申請（共 {approved_count} 筆）")
+            TextSendMessage(text=f"✅ 已完成對 {user_name} 的請假簽核（{summary_text}）")
         )
     else:
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text=f"❌ 找不到「{user_name}」的待簽核請假單（編號 {group_id}）。")
         )
+
 
 def approve(doc, data, supervisor_id, line_bot_api=None):
     db = get_db()
