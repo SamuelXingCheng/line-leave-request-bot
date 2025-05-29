@@ -1,7 +1,7 @@
 # firebase_db.py
 import logging
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 from firebase_admin import credentials, firestore, initialize_app
 import os
 from dotenv import load_dotenv
@@ -21,17 +21,29 @@ def save_request(user_id, user_name, start_date, start_time, end_date, end_time,
     start_dt = tz.localize(datetime.strptime(f"{start_date} {start_time}", "%Y-%m-%d %H:%M"))
     end_dt = tz.localize(datetime.strptime(f"{end_date} {end_time}", "%Y-%m-%d %H:%M"))
 
-    group_id = str(uuid.uuid4())  # 新增群組 ID
-
+    group_id = str(uuid.uuid4())  # 請假群組 ID
     current_date = start_dt
-    while current_date.date() <= end_dt.date():
-        request_start = max(current_date, start_dt)
-        request_end = min(
-            current_date.replace(hour=23, minute=59) if current_date.date() != end_dt.date() else end_dt,
-            end_dt
-        )
 
-        result = db.collection("requests").add({
+    # 預設上下班時間
+    default_start = time(8, 30)
+    default_end = time(17, 30)
+
+    while current_date.date() <= end_dt.date():
+        date_only = current_date.date()
+
+        # 預設整天請假時段
+        request_start = tz.localize(datetime.combine(date_only, default_start))
+        request_end = tz.localize(datetime.combine(date_only, default_end))
+
+        # 第一筆 → 使用真實 start_dt
+        if date_only == start_dt.date():
+            request_start = start_dt
+
+        # 最後一筆 → 使用真實 end_dt
+        if date_only == end_dt.date():
+            request_end = end_dt
+
+        db.collection("requests").add({
             "request_group_id": group_id,
             "user_id": user_id,
             "user_name": user_name,
@@ -44,6 +56,7 @@ def save_request(user_id, user_name, start_date, start_time, end_date, end_time,
             "created_at": datetime.now(tz)
         })
 
+        # 下一天
         current_date += timedelta(days=1)
 
     return group_id
