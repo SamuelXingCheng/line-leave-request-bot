@@ -182,6 +182,11 @@ def approve(doc, data, supervisor_id, line_bot_api, reply_token):
 
     user_name = data.get("user_name")
     user_id = data.get("user_id")  # 必須有 user_id 才能推播通知
+    start = data.get("start_at")
+    end = data.get("end_at")
+    reason = data.get("reason", "")
+    start_str = format_tw_time(start)
+    end_str = format_tw_time(end)
 
     if all(status == "approved" for status in approvals.values()):
         doc_ref.update({"status": "approved"})
@@ -192,7 +197,11 @@ def approve(doc, data, supervisor_id, line_bot_api, reply_token):
             try:
                 line_bot_api.push_message(
                     user_id,
-                    TextSendMessage(text=f"✅ 你的請假申請已完成簽核（主管 {supervisor_id} 已通過）")
+                    TextSendMessage(text=(
+                        "✅ 你的請假申請已通過所有主管簽核！\n"
+                        f"📅 時間：{start_str} ~ {end_str}\n"
+                        f"📝 原因：{reason}"
+                    ))
                 )
             except Exception as e:
                 print(f"❗ 通知請假者失敗：{e}")
