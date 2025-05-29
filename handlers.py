@@ -3,6 +3,8 @@ import logging
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from utils import parse_leave_command
 from firebase_db import save_request, get_user_info_by_line_id, ensure_user_registered
+import os
+import urllib
 
 def handle_message(event, line_bot_api):
     if not isinstance(event.message, TextMessage):
@@ -66,7 +68,7 @@ def handle_message(event, line_bot_api):
         if user_info.get("supervisor_ids"):
             bot_id = os.getenv("LINE_BOT_ID")  # 例如 @123xyz
             encoded_query = urllib.parse.quote("/查詢請假")
-            approval_link = f"line://oaMessage/{bot_id}/?{encoded_query}"
+            approval_link = f"line://oaMessage/@{bot_id}/?{encoded_query}"
 
             forward_msg = (
                 "📤 請將以下訊息轉傳給主管簽核：\n\n"
