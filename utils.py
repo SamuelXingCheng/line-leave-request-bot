@@ -31,7 +31,11 @@ def parse_leave_command(text):
     text = text.strip().replace("/請假", "").strip()
     text = text.replace("～", "-").replace("到", "-")
 
-    # 1️⃣ 單日整天（例：2025/5/23 整天 家裡有事）
+    # 預設時間
+    default_start = "08:30"
+    default_end = "17:30"
+
+    # 1️⃣ 單日整天
     match = re.match(r"(\d{4}/\d+/\d+)\s*整天\s+(.+)", text)
     if match:
         date = normalize_date(match.group(1))
@@ -40,12 +44,12 @@ def parse_leave_command(text):
             return {
                 "start_date": date,
                 "end_date": date,
-                "start_time": None,
-                "end_time": None,
+                "start_time": default_start,
+                "end_time": default_end,
                 "reason": reason
             }
 
-    # 2️⃣ 區間請假（例：2025/5/23 09:00-10:00 外出辦事）
+    # 2️⃣ 區間請假
     match = re.match(r"(\d{4}/\d+/\d+)\s+(\d{1,2}:\d{2})-(\d{1,2}:\d{2})\s+(.+)", text)
     if match:
         date = normalize_date(match.group(1))
@@ -61,7 +65,7 @@ def parse_leave_command(text):
                 "reason": reason
             }
 
-    # 3️⃣ 多日整天（例：2025/5/23-2025/5/24 家裡有事）
+    # 3️⃣ 多日整天（沒時間 → 補上預設時間）
     match = re.match(r"(\d{4}/\d+/\d+)-(\d{4}/\d+/\d+)\s+(.+)", text)
     if match:
         start_date = normalize_date(match.group(1))
@@ -71,12 +75,12 @@ def parse_leave_command(text):
             return {
                 "start_date": start_date,
                 "end_date": end_date,
-                "start_time": None,
-                "end_time": None,
+                "start_time": default_start,
+                "end_time": default_end,
                 "reason": reason
             }
 
-    # 4️⃣ 多日單一時間（例：2025/5/23-2025/5/24 11:30 家裡有事）
+    # 4️⃣ 多日單一時間（如 11:30）
     match = re.match(r"(\d{4}/\d+/\d+)-(\d{4}/\d+/\d+)\s+(\d{1,2}:\d{2})\s+(.+)", text)
     if match:
         start_date = normalize_date(match.group(1))
