@@ -125,7 +125,7 @@ def build_forward_message(data, request_id):
     supervisor_ids = data.get("supervisor_ids", [])
     bot_id = os.getenv("LINE_BOT_ID")  # 例如 @123xyz
 
-    approval_command = f"/同意 {user_name}"
+    approval_command = f"/同意請假 {request_id} {user_name}"
     encoded_query = urllib.parse.quote(approval_command)
     approval_link = f"line://oaMessage/@{bot_id}/?{encoded_query}"
 
@@ -133,7 +133,8 @@ def build_forward_message(data, request_id):
         "弟兄您好，\n\n"
         f"因為 {data['reason']}，從 {data['start_date']} {data['start_time']} "
         f"到 {data['end_date']} {data['end_time']} 需要請假，煩請批准。\n\n"
-        f"👉 點擊以下連結，系統將自動填入「/同意 {user_name}」，請直接送出即可完成簽核：\n"
+        f"👉 點擊以下連結，系統將自動填入「/同意請假 {request_id} {user_name}」，"
+        "請直接送出即可完成簽核：\n"
         f"{approval_link}"
         "\n\n若不同意，請口頭告知請假者即可，無需操作此連結。"
     )

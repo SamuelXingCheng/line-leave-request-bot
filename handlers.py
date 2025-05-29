@@ -95,7 +95,7 @@ def handle_message(event, line_bot_api):
         handle_query_pending_leaves(event, line_bot_api)
         return
 
-    if user_text.startswith("/同意"):
+    if user_text.startswith("/同意請假"):
         parts = user_text.split()
         if len(parts) == 2:
             handle_approve_by_name(event, line_bot_api, parts[1])
