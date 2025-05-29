@@ -1,7 +1,7 @@
 # handlers.py
 import logging
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
-from utils import build_forward_message, parse_leave_command, handle_query_pending_leaves, handle_approve_by_name
+from utils import handle_approve_by_group, build_forward_message, parse_leave_command, handle_query_pending_leaves
 from firebase_db import save_request, get_user_info_by_line_id, ensure_user_registered, get_supervisor_names
 import os
 import urllib
@@ -53,7 +53,7 @@ def handle_message(event, line_bot_api):
             return
 
         # 儲存請假資料
-        save_request(
+        request_group_id = save_request(
             user_id=user_id,
             user_name=user_info["name"],
             start_date=parsed["start_date"],
@@ -75,7 +75,7 @@ def handle_message(event, line_bot_api):
                 "end_date": parsed["end_date"],
                 "end_time": parsed["end_time"],
                 "supervisor_ids": supervisor_ids,
-            }, request_id=None)  # 若未用到 request_id 可暫傳 None
+            }, request_id=request_group_id)
 
             messages = [TextSendMessage(text=forward_msg)]
             if user_hint_msg:
@@ -97,11 +97,13 @@ def handle_message(event, line_bot_api):
 
     if user_text.startswith("/同意請假"):
         parts = user_text.split()
-        if len(parts) == 2:
-            handle_approve_by_name(event, line_bot_api, parts[1])
+        if len(parts) == 3:
+            group_id = parts[1]
+            user_name = parts[2]
+            handle_approve_by_group(event, line_bot_api, group_id, user_name)
         else:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(text="❗請使用格式：/同意 員工姓名")
+                TextSendMessage(text="❗請使用格式：/同意請假 請假編號 員工姓名")
             )
         return

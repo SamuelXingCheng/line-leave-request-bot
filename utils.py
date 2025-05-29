@@ -133,7 +133,7 @@ def build_forward_message(data, request_id):
         "弟兄您好，\n\n"
         f"因為 {data['reason']}，從 {data['start_date']} {data['start_time']} "
         f"到 {data['end_date']} {data['end_time']} 需要請假，煩請批准。\n\n"
-        f"👉 點擊以下連結，系統將自動填入「/同意請假 {request_id} {user_name}」，"
+        f"👉 點擊以下連結，系統將自動填入「/同意請假 （假單編號） {user_name}」，"
         "請直接送出即可完成簽核：\n"
         f"{approval_link}"
         "\n\n若不同意，請口頭告知請假者即可，無需操作此連結。"
@@ -184,63 +184,95 @@ def handle_query_pending_leaves(event, line_bot_api):
         TextSendMessage(text=reply)
     )
 
-def handle_approve_by_name(event, line_bot_api, user_name):
+def handle_approve_by_group(event, line_bot_api, group_id, user_name):
     supervisor_id = event.source.user_id
     db = get_db()
 
     docs = db.collection("requests")\
-             .order_by("created_at", direction=firestore.Query.DESCENDING)\
+             .where("request_group_id", "==", group_id)\
+             .where("user_name", "==", user_name)\
              .stream()
 
+    approved_count = 0
     for doc in docs:
         data = doc.to_dict()
         approvals = data.get("approvals", {})
-        if approvals.get(supervisor_id) == "pending" and user_name in data.get("user_name", ""):
-            return approve(doc, data, supervisor_id, line_bot_api, event.reply_token)
+        if approvals.get(supervisor_id) == "pending":
+            # ✅ 只更新資料，不用回覆訊息
+            approve(doc, data, supervisor_id, line_bot_api)
 
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(text=f"❌ 找不到名為「{user_name}」的待簽核請假單。")
-    )
+            approved_count += 1
 
-def approve(doc, data, supervisor_id, line_bot_api, reply_token):
+    if approved_count > 0:
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=f"✅ 已簽核 {user_name} 的請假申請（共 {approved_count} 筆）")
+        )
+    else:
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=f"❌ 找不到「{user_name}」的待簽核請假單（編號 {group_id}）。")
+        )
+
+def approve(doc, data, supervisor_id, line_bot_api=None):
     db = get_db()
     doc_ref = db.collection("requests").document(doc.id)
-    doc_ref.update({f"approvals.{supervisor_id}": "approved"})
 
+    # ✅ 更新 memory 中的 approvals（避免重查）
     approvals = data["approvals"]
     approvals[supervisor_id] = "approved"
 
-    user_name = data.get("user_name")
-    user_id = data.get("user_id")  # 必須有 user_id 才能推播通知
-    start = data.get("start_at")
-    end = data.get("end_at")
-    reason = data.get("reason", "")
-    start_str = format_tw_time(start)
-    end_str = format_tw_time(end)
+    # ✅ 更新 Firestore：單一主管簽核狀態
+    doc_ref.update({
+        f"approvals.{supervisor_id}": "approved"
+    })
 
+    # ✅ 檢查是否本筆請假單的所有主管皆已簽核
     if all(status == "approved" for status in approvals.values()):
         doc_ref.update({"status": "approved"})
-        message = f"✅ 您已簽核完成，「{user_name}」的請假單已全部核准！"
-
-        # ✅ 自動通知請假人
-        if user_id:
-            try:
-                line_bot_api.push_message(
-                    user_id,
-                    TextSendMessage(text=(
-                        "✅ 你的請假申請已通過所有主管簽核！\n"
-                        f"📅 時間：{start_str} ~ {end_str}\n"
-                        f"📝 原因：{reason}"
-                    ))
-                )
-            except Exception as e:
-                print(f"❗ 通知請假者失敗：{e}")
-
     else:
-        message = f"☑️ 您已簽核「{user_name}」，等待其他主管審核中。"
+        return  # 尚未完成，直接 return
 
-    line_bot_api.reply_message(
-        reply_token,
-        TextSendMessage(text=message)
-    )
+    # ✅ 再檢查整個 group 是否每一筆請假都 status = approved
+    group_id = data.get("request_group_id")
+    if not group_id:
+        return
+
+    group_docs = db.collection("requests")\
+        .where("request_group_id", "==", group_id)\
+        .stream()
+
+    all_approved = True
+    all_items = []
+    for gdoc in group_docs:
+        gdata = gdoc.to_dict()
+        all_items.append(gdata)
+        if gdata.get("status") != "approved":
+            all_approved = False
+            break
+
+    if not all_approved:
+        return
+
+    # ✅ 若整組皆核准，推播一次給請假者
+    user_id = data.get("user_id")
+    reason = data.get("reason", "")
+
+    if user_id and line_bot_api:
+        try:
+            # 彙整所有請假時間段
+            time_ranges = []
+            for item in sorted(all_items, key=lambda x: x.get("start_at")):
+                start_str = format_tw_time(item.get("start_at"))
+                end_str = format_tw_time(item.get("end_at"))
+                time_ranges.append(f"📅 {start_str} ~ {end_str}")
+
+            message = (
+                "✅ 你的請假申請已通過所有主管簽核！\n" +
+                "\n".join(time_ranges) + "\n" +
+                f"📝 原因：{reason}"
+            )
+
+            line_bot_api.push_message(user_id, TextSendMessage(text=message))
+        except Exception as e:
+            print(f"❗ 通知請假者失敗：{e}")

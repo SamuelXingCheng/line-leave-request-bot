@@ -21,7 +21,7 @@ def save_request(user_id, user_name, start_date, start_time, end_date, end_time,
     start_dt = tz.localize(datetime.strptime(f"{start_date} {start_time}", "%Y-%m-%d %H:%M"))
     end_dt = tz.localize(datetime.strptime(f"{end_date} {end_time}", "%Y-%m-%d %H:%M"))
 
-    created_ids = []
+    group_id = str(uuid.uuid4())  # 新增群組 ID
 
     current_date = start_dt
     while current_date.date() <= end_dt.date():
@@ -32,6 +32,7 @@ def save_request(user_id, user_name, start_date, start_time, end_date, end_time,
         )
 
         result = db.collection("requests").add({
+            "request_group_id": group_id,
             "user_id": user_id,
             "user_name": user_name,
             "start_at": request_start,
@@ -42,11 +43,10 @@ def save_request(user_id, user_name, start_date, start_time, end_date, end_time,
             "approvals": {sid: "pending" for sid in supervisor_ids},
             "created_at": datetime.now(tz)
         })
-        created_ids.append(result[1].id)  # 正確取得 document_ref.id
 
         current_date += timedelta(days=1)
 
-    return created_ids
+    return group_id
 
 
 def save_requests(request_list):
