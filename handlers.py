@@ -1,7 +1,7 @@
 # handlers.py
 import logging
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
-from utils import parse_leave_command, handle_query_pending_leaves, handle_approve_by_name
+from utils import build_forward_message, parse_leave_command, handle_query_pending_leaves, handle_approve_by_name
 from firebase_db import save_request, get_user_info_by_line_id, ensure_user_registered, get_supervisor_names
 import os
 import urllib
@@ -67,36 +67,22 @@ def handle_message(event, line_bot_api):
         # ✅ 生成轉發訊息給主管
         supervisor_ids = user_info.get("supervisor_ids", [])
         if supervisor_ids:
-            bot_id = os.getenv("LINE_BOT_ID")  # 例如 @123xyz
-            approval_command = f"/同意 {user_info['name']}"
-            encoded_query = urllib.parse.quote(approval_command)
-            approval_link = f"line://oaMessage/@{bot_id}/?{encoded_query}"
+            forward_msg, user_hint_msg = build_forward_message({
+                "name": user_info["name"],
+                "reason": parsed["reason"],
+                "start_date": parsed["start_date"],
+                "start_time": parsed["start_time"],
+                "end_date": parsed["end_date"],
+                "end_time": parsed["end_time"],
+                "supervisor_ids": supervisor_ids,
+            }, request_id=None)  # 若未用到 request_id 可暫傳 None
 
-            forward_msg = (
-                "弟兄您好，\n\n"
-                f"因為 {parsed['reason']}，從 {parsed['start_date']} {parsed['start_time']} "
-                f"到 {parsed['end_date']} {parsed['end_time']} 需要請假，煩請批准。\n\n"
-                f"👉 點擊以下連結，系統將自動填入「/同意 {user_info['name']}」，請直接送出即可完成簽核：\n"
-                f"{approval_link}"
-            )
-            forward_msg += "\n\n若不同意，請口頭告知請假者即可，無需操作此連結。"
+            messages = [TextSendMessage(text=forward_msg)]
+            if user_hint_msg:
+                messages.append(TextSendMessage(text=user_hint_msg))
 
-            supervisor_names = get_supervisor_names(supervisor_ids)
-            user_hint_msg = (
-                "📌 請記得轉傳上方訊息給以下主管簽核：\n" +
-                "\n".join(f"- {name}" for name in supervisor_names)
-            )
-
-            # ✅ 一次回傳兩段訊息
-            line_bot_api.reply_message(
-                event.reply_token,
-                [
-                    TextSendMessage(text=forward_msg),
-                    TextSendMessage(text=user_hint_msg)
-                ]
-            )
+            line_bot_api.reply_message(event.reply_token, messages)
         else:
-            # ✅ 如果沒有設定主管，回傳單一警告訊息
             line_bot_api.reply_message(
                 event.reply_token,
                 TextSendMessage(

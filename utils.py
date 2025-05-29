@@ -7,6 +7,7 @@ from firebase_admin import firestore
 # ✅ 支援整天請假與單日區間請假
 import re
 import os
+import urllib.parse
 
 from pytz import timezone
 
@@ -110,19 +111,44 @@ def parse_leave_command(text):
 
 # ✅ 將請假資料轉為可供轉發的 LINE 訊息
 def build_forward_message(data, request_id):
-    if data.get("start_time") and data.get("end_time"):
-        date_part = f'{data["start_date"]} {data["start_time"]}～{data["end_time"]}'
-    else:
-        date_part = f'{data["start_date"]} 至 {data["end_date"]}'
+    """
+    根據請假資料產生要轉傳給主管的訊息。
+    參數 data 必須包含：
+        - name：請假人姓名
+        - reason：請假事由
+        - start_date, start_time, end_date, end_time：請假時間
+        - supervisor_ids：主管 LINE ID list（可選）
 
-    line_bot_id = os.getenv("LINE_BOT_ID", "yourbotid")  # ❗需設定在 .env
-    link = f"line://oaMessage/@{line_bot_id}/?/查詢請假"
+    傳回 tuple：(forward_msg, user_hint_msg)
+    """
+    user_name = data["name"]
+    supervisor_ids = data.get("supervisor_ids", [])
+    bot_id = os.getenv("LINE_BOT_ID")  # 例如 @123xyz
 
-    return (
-        f"請將以下訊息手動轉發給您的主管：\n\n"
-        f"因為 {data['reason']}，從 {date_part} 需要請假，煩請批准。\n\n"
-        f"👉 點擊以下連結查詢待簽核請假單：\n{link}"
+    approval_command = f"/同意 {user_name}"
+    encoded_query = urllib.parse.quote(approval_command)
+    approval_link = f"line://oaMessage/@{bot_id}/?{encoded_query}"
+
+    forward_msg = (
+        "弟兄您好，\n\n"
+        f"因為 {data['reason']}，從 {data['start_date']} {data['start_time']} "
+        f"到 {data['end_date']} {data['end_time']} 需要請假，煩請批准。\n\n"
+        f"👉 點擊以下連結，系統將自動填入「/同意 {user_name}」，請直接送出即可完成簽核：\n"
+        f"{approval_link}"
+        "\n\n若不同意，請口頭告知請假者即可，無需操作此連結。"
     )
+
+    if supervisor_ids:
+        from firebase_db import get_supervisor_names  # 避免循環 import 可放在這行
+        supervisor_names = get_supervisor_names(supervisor_ids)
+        user_hint_msg = (
+            "📌 請記得轉傳上方訊息給以下主管簽核：\n" +
+            "\n".join(f"- {name}" for name in supervisor_names)
+        )
+    else:
+        user_hint_msg = None
+
+    return forward_msg, user_hint_msg
 
 # ✅ 取得使用者顯示名稱（可進階改為查表）
 def get_user_display_name(user_id):
