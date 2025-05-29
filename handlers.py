@@ -41,7 +41,7 @@ def handle_message(event, line_bot_api):
             )
             return
 
-        # 取得使用者資訊（姓名、主管）
+        # 取得使用者資訊
         user_info = get_user_info_by_line_id(user_id)
         if not user_info:
             line_bot_api.reply_message(
@@ -62,7 +62,25 @@ def handle_message(event, line_bot_api):
             supervisor_ids=user_info.get("supervisor_ids", [])
         )
 
+        # ✅ 生成轉發訊息給主管
+        if user_info.get("supervisor_ids"):
+            bot_id = os.getenv("LINE_BOT_ID")  # 例如 @123xyz
+            encoded_query = urllib.parse.quote("/查詢請假")
+            approval_link = f"line://oaMessage/{bot_id}/?{encoded_query}"
+
+            forward_msg = (
+                "📤 請將以下訊息轉傳給主管簽核：\n\n"
+                f"因為 {parsed['reason']}，從 {parsed['start_date']} {parsed['start_time']} "
+                f"到 {parsed['end_date']} {parsed['end_time']} 需要請假，煩請批准。\n\n"
+                f"👉 點擊以下連結查詢待簽核請假單：\n{approval_link}"
+            )
+        else:
+            forward_msg = (
+                "⚠️ 你尚未設定主管，請聯絡管理員設定 supervisor_ids。\n"
+                "請假資料已儲存，但無法簽核。"
+            )
+
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text="✅ 請假申請已送出，等待主管簽核")
+            TextSendMessage(text=forward_msg)
         )

@@ -20,7 +20,6 @@ def save_request(user_id, user_name, start_date, start_time, end_date, end_time,
 
     created_ids = []
 
-    # 建立每日請假記錄（拆成多筆）
     current_date = start_dt
     while current_date.date() <= end_dt.date():
         request_start = max(current_date, start_dt)
@@ -29,7 +28,7 @@ def save_request(user_id, user_name, start_date, start_time, end_date, end_time,
             end_dt
         )
 
-        db.collection("requests").add({
+        result = db.collection("requests").add({
             "user_id": user_id,
             "user_name": user_name,
             "start_at": request_start,
@@ -40,11 +39,11 @@ def save_request(user_id, user_name, start_date, start_time, end_date, end_time,
             "approvals": {sid: "pending" for sid in supervisor_ids},
             "created_at": datetime.now(tz)
         })
-        created_ids.append(doc_ref[1].id)
+        created_ids.append(result[1].id)  # 正確取得 document_ref.id
 
         current_date += timedelta(days=1)
 
-        return created_ids
+    return created_ids
 
 
 def save_requests(request_list):
