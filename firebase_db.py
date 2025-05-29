@@ -119,6 +119,16 @@ def update_approval_status(request_id, supervisor_id, decision):
         logging.error(f"❌ 更新簽核狀態失敗：{e}")
         return False
 
+def get_supervisor_names(supervisor_ids):
+    names = []
+    for sid in supervisor_ids:
+        info = get_user_info_by_line_id(sid)
+        if info:
+            names.append(info.get("name", sid))
+        else:
+            names.append(f"(未知主管 {sid})")
+    return names
+
 def get_user_info_by_line_id(line_user_id):
     try:
         user_doc = db.collection("users").document(line_user_id).get()

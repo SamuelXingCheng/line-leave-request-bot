@@ -2,7 +2,7 @@
 import logging
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from utils import parse_leave_command
-from firebase_db import save_request, get_user_info_by_line_id, ensure_user_registered
+from firebase_db import save_request, get_user_info_by_line_id, ensure_user_registered, get_supervisor_names
 import os
 import urllib
 
@@ -65,24 +65,39 @@ def handle_message(event, line_bot_api):
         )
 
         # ✅ 生成轉發訊息給主管
-        if user_info.get("supervisor_ids"):
+        supervisor_ids = user_info.get("supervisor_ids", [])
+        if supervisor_ids:
             bot_id = os.getenv("LINE_BOT_ID")  # 例如 @123xyz
             encoded_query = urllib.parse.quote("/查詢請假")
             approval_link = f"line://oaMessage/@{bot_id}/?{encoded_query}"
 
             forward_msg = (
-                "📤 請將以下訊息轉傳給主管簽核：\n\n"
+                "弟兄您好，\n\n"
                 f"因為 {parsed['reason']}，從 {parsed['start_date']} {parsed['start_time']} "
                 f"到 {parsed['end_date']} {parsed['end_time']} 需要請假，煩請批准。\n\n"
                 f"👉 點擊以下連結查詢待簽核請假單：\n{approval_link}"
             )
-        else:
-            forward_msg = (
-                "⚠️ 你尚未設定主管，請聯絡管理員設定 supervisor_ids。\n"
-                "請假資料已儲存，但無法簽核。"
+
+            supervisor_names = get_supervisor_names(supervisor_ids)
+            user_hint_msg = (
+                "📌 請記得轉傳上方訊息給以下主管簽核：\n" +
+                "\n".join(f"- {name}" for name in supervisor_names)
             )
 
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=forward_msg)
-        )
+            # ✅ 一次回傳兩段訊息
+            line_bot_api.reply_message(
+                event.reply_token,
+                [
+                    TextSendMessage(text=forward_msg),
+                    TextSendMessage(text=user_hint_msg)
+                ]
+            )
+        else:
+            # ✅ 如果沒有設定主管，回傳單一警告訊息
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(
+                    text="⚠️ 你尚未設定主管，請聯絡管理員設定 supervisor_ids。\n"
+                        "請假資料已儲存，但無法簽核。"
+                )
+            )
