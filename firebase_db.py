@@ -15,7 +15,7 @@ db = firestore.client()
 
 def get_db():
     return firestore.client()
-    
+
 def save_request(user_id, user_name, start_date, start_time, end_date, end_time, reason, supervisor_ids):
     tz = pytz.timezone("Asia/Taipei")
     start_dt = tz.localize(datetime.strptime(f"{start_date} {start_time}", "%Y-%m-%d %H:%M"))
@@ -147,10 +147,12 @@ def ensure_user_registered(user_id, name):
         doc_ref = db.collection("users").document(user_id)
         if not doc_ref.get().exists:
             doc_ref.set({
+                "user_id": user_id,  # 雖然在文件 ID，也建議明確存一次
                 "name": name,
-                "role": "employee",  # 預設為 employee，如要支援 supervisor 請自行切換
-                "supervisor_ids": [],  # 尚未設定主管
-                "auth_uid": None
+                "role": "employee",  # 預設角色
+                "supervisor_ids": [],  # 可供後續設定主管
+                "auth_uid": None,
+                "created_at": firestore.SERVER_TIMESTAMP
             })
             logging.info(f"✅ 已註冊使用者 {user_id}：{name}")
             return True
