@@ -119,3 +119,13 @@ def update_approval_status(request_id, supervisor_id, decision):
     except Exception as e:
         logging.error(f"❌ 更新簽核狀態失敗：{e}")
         return False
+
+def get_user_info_by_line_id(line_user_id):
+    try:
+        user_doc = db.collection("users").document(line_user_id).get()
+        if user_doc.exists:
+            return user_doc.to_dict()
+        return None
+    except Exception as e:
+        logging.error(f"❌ 取得使用者資訊失敗：{e}")
+        return None

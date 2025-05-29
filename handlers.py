@@ -1,62 +1,60 @@
 # handlers.py
 import logging
-from linebot.models import TextSendMessage
-from firebase_db import save_request, get_pending_requests, update_request_status
-from utils import parse_leave_command, build_forward_message, get_user_display_name
-
+from linebot.models import MessageEvent, TextMessage, TextSendMessage
+from utils import parse_leave_command
+from firebase_db import save_request, get_user_info_by_line_id
 
 def handle_message(event, line_bot_api):
-    user_id = event.source.user_id
-    text = event.message.text.strip()
-    logging.info(f"✅ 處理訊息：{text}")
+    if not isinstance(event.message, TextMessage):
+        return
 
-    if text.startswith("/請假"):
-        data = parse_leave_command(text)
-        if not data:
+    user_id = event.source.user_id
+    user_text = event.message.text.strip()
+
+    logging.info(f"✅ 收到使用者訊息：{user_text}")
+
+    # 解析指令
+    if user_text.startswith("/請假"):
+        parsed = parse_leave_command(user_text)
+        if not parsed:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(text="❗格式錯誤，請使用：\n1️⃣ /請假 2025-05-24 2025-05-25 家中急事\n2️⃣ /請假 2025-05-24 09:00 12:00 看診")
+                TextSendMessage(text="❌ 請假格式錯誤，請確認格式。")
             )
             return
 
-        request_id = save_request(user_id=user_id, **data)
-        msg = build_forward_message(data, request_id)
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
-        return
-
-    elif text.startswith("/查詢請假"):
-        requests = get_pending_requests()
-        if not requests:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="目前沒有待簽核請假單。"))
+        # 取得使用者資訊（姓名、主管）
+        user_info = get_user_info_by_line_id(user_id)
+        if not user_info:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="❌ 無法取得使用者資訊，請聯絡管理員。")
+            )
             return
 
-        msg = "目前待簽核請假申請：\n"
-        for r in requests:
-            name = get_user_display_name(r["user_id"])
-            if r.get("start_time") and r.get("end_time"):
-                date_range = f"{r['start_date']} {r['start_time']}～{r['end_time']}"
-            else:
-                date_range = f"{r['start_date']} 至 {r['end_date']}"
-            msg += f"{name} - {date_range} - {r['reason']}\n👉 /簽核 {r['request_id']} ｜ /拒絕 {r['request_id']}\n\n"
+        # 儲存請假資料
+        save_request(
+            user_id=user_id,
+            user_name=user_info["name"],
+            start_date=parsed["start_date"],
+            start_time=parsed["start_time"],
+            end_date=parsed["end_date"],
+            end_time=parsed["end_time"],
+            reason=parsed["reason"],
+            supervisor_ids=user_info.get("supervisor_ids", [])
+        )
 
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg.strip()))
-        return
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text="✅ 請假申請已送出，等待主管簽核")
+        )
 
-    elif text.startswith("/簽核") or text.startswith("/拒絕"):
-        parts = text.split()
-        if len(parts) != 2:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="請使用：/簽核 request_id 或 /拒絕 request_id"))
-            return
-
-        request_id = parts[1]
-        status = "approved" if text.startswith("/簽核") else "rejected"
-        success = update_request_status(request_id, status)
-
-        if success:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"✅ 請假單已{status}"))
-        else:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❗查無此請假單"))
-        return
-
-    else:
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="請輸入正確指令，例如 /請假 或 /查詢請假"))
+def get_user_info_by_line_id(line_user_id):
+    try:
+        user_doc = db.collection("users").document(line_user_id).get()
+        if user_doc.exists:
+            return user_doc.to_dict()
+        return None
+    except Exception as e:
+        logging.error(f"❌ 取得使用者資訊失敗：{e}")
+        return None
