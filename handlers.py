@@ -2,7 +2,7 @@
 import logging
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from utils import parse_leave_command
-from firebase_db import save_request, get_user_info_by_line_id
+from firebase_db import save_request, get_user_info_by_line_id, ensure_user_registered
 
 def handle_message(event, line_bot_api):
     if not isinstance(event.message, TextMessage):
@@ -12,8 +12,26 @@ def handle_message(event, line_bot_api):
     user_text = event.message.text.strip()
 
     logging.info(f"✅ 收到使用者訊息：{user_text}")
+    
+    # ✅ 註冊指令：/註冊 王小明
+    if user_text.startswith("/註冊"):
+        parts = user_text.split()
+        if len(parts) >= 2:
+            name = " ".join(parts[1:])
+            success = ensure_user_registered(user_id, name)
+            reply = (
+                f"✅ {name} 已註冊成功！" if success
+                else "⚠️ 你已經註冊過了！"
+            )
+        else:
+            reply = "❗ 請使用格式：\n/註冊 王小明"
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=reply)
+        )
+        return
 
-    # 解析指令
+    # ✅ 請假指令
     if user_text.startswith("/請假"):
         parsed = parse_leave_command(user_text)
         if not parsed:
@@ -48,13 +66,3 @@ def handle_message(event, line_bot_api):
             event.reply_token,
             TextSendMessage(text="✅ 請假申請已送出，等待主管簽核")
         )
-
-def get_user_info_by_line_id(line_user_id):
-    try:
-        user_doc = db.collection("users").document(line_user_id).get()
-        if user_doc.exists:
-            return user_doc.to_dict()
-        return None
-    except Exception as e:
-        logging.error(f"❌ 取得使用者資訊失敗：{e}")
-        return None

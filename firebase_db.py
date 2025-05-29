@@ -129,3 +129,22 @@ def get_user_info_by_line_id(line_user_id):
     except Exception as e:
         logging.error(f"❌ 取得使用者資訊失敗：{e}")
         return None
+
+def ensure_user_registered(user_id, name):
+    try:
+        doc_ref = db.collection("users").document(user_id)
+        if not doc_ref.get().exists:
+            doc_ref.set({
+                "name": name,
+                "role": "employee",  # 預設為 employee，如要支援 supervisor 請自行切換
+                "supervisor_ids": [],  # 尚未設定主管
+                "auth_uid": None
+            })
+            logging.info(f"✅ 已註冊使用者 {user_id}：{name}")
+            return True
+        else:
+            logging.info(f"⚠️ 使用者 {user_id} 已存在，略過註冊")
+            return False
+    except Exception as e:
+        logging.error(f"❌ 註冊使用者失敗：{e}")
+        return False
