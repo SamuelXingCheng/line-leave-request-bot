@@ -68,15 +68,18 @@ def handle_message(event, line_bot_api):
         supervisor_ids = user_info.get("supervisor_ids", [])
         if supervisor_ids:
             bot_id = os.getenv("LINE_BOT_ID")  # 例如 @123xyz
-            encoded_query = urllib.parse.quote("/查詢請假")
+            approval_command = f"/同意 {user_info['name']}"
+            encoded_query = urllib.parse.quote(approval_command)
             approval_link = f"line://oaMessage/@{bot_id}/?{encoded_query}"
 
             forward_msg = (
                 "弟兄您好，\n\n"
                 f"因為 {parsed['reason']}，從 {parsed['start_date']} {parsed['start_time']} "
                 f"到 {parsed['end_date']} {parsed['end_time']} 需要請假，煩請批准。\n\n"
-                f"👉 點擊以下連結查詢待簽核請假單：\n{approval_link}"
+                f"👉 點擊以下連結，系統將自動填入「/同意 {user_info['name']}」，請直接送出即可完成簽核：\n"
+                f"{approval_link}"
             )
+            forward_msg += "\n\n若不同意，請口頭告知請假者即可，無需操作此連結。"
 
             supervisor_names = get_supervisor_names(supervisor_ids)
             user_hint_msg = (
