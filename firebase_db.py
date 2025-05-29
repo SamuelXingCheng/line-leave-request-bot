@@ -13,6 +13,9 @@ cred = credentials.Certificate(cred_path)
 initialize_app(cred)
 db = firestore.client()
 
+def get_db():
+    return firestore.client()
+    
 def save_request(user_id, user_name, start_date, start_time, end_date, end_time, reason, supervisor_ids):
     tz = pytz.timezone("Asia/Taipei")
     start_dt = tz.localize(datetime.strptime(f"{start_date} {start_time}", "%Y-%m-%d %H:%M"))

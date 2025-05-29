@@ -1,7 +1,7 @@
 # handlers.py
 import logging
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
-from utils import parse_leave_command
+from utils import parse_leave_command, handle_query_pending_leaves, handle_approve_by_name
 from firebase_db import save_request, get_user_info_by_line_id, ensure_user_registered, get_supervisor_names
 import os
 import urllib
@@ -101,3 +101,18 @@ def handle_message(event, line_bot_api):
                         "請假資料已儲存，但無法簽核。"
                 )
             )
+
+    if user_text.startswith("/查詢請假"):
+        handle_query_pending_leaves(event, line_bot_api)
+        return
+
+    if user_text.startswith("/同意"):
+        parts = user_text.split()
+        if len(parts) == 2:
+            handle_approve_by_name(event, line_bot_api, parts[1])
+        else:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="❗請使用格式：/同意 員工姓名")
+            )
+        return
