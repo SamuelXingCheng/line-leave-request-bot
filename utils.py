@@ -36,6 +36,46 @@ def parse_leave_command(text):
     default_start = "08:30"
     default_end = "17:30"
 
+    # ✅ 解析標題 + 分行格式
+    if "日期：" in text and "事由：" in text:
+        lines = text.splitlines()
+        date_line = next((l for l in lines if l.startswith("日期：")), "")
+        time_line = next((l for l in lines if l.startswith("時間：")), "")
+        reason_line = next((l for l in lines if l.startswith("事由：")), "")
+
+        # 日期欄位
+        date_range = date_line.replace("日期：", "").strip()
+        if "-" in date_range:
+            start_date_str, end_date_str = [d.strip() for d in date_range.split("-")]
+        else:
+            start_date_str = end_date_str = date_range.strip()
+
+        # 時間欄位
+        time_range = time_line.replace("時間：", "").strip() if time_line else "整天"
+        if time_range == "整天":
+            start_time = default_start
+            end_time = default_end
+        elif "-" in time_range:
+            start_time, end_time = [t.strip() for t in time_range.split("-")]
+        else:
+            try:
+                t = datetime.strptime(time_range, "%H:%M")
+                start_time = time_range
+                end_time = (t + timedelta(hours=1)).strftime("%H:%M")
+            except:
+                return None
+
+        # 事由欄位
+        reason = reason_line.replace("事由：", "").strip()
+
+        return {
+            "start_date": normalize_date(start_date_str),
+            "end_date": normalize_date(end_date_str),
+            "start_time": normalize_time(start_time),
+            "end_time": normalize_time(end_time),
+            "reason": reason
+        }
+
     # 1️⃣ 單日整天
     match = re.match(r"(\d{4}/\d+/\d+)\s*整天\s+(.+)", text)
     if match:
