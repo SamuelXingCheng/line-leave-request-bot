@@ -1,6 +1,6 @@
 # handlers.py
 import logging
-from linebot.models import MessageEvent, TextMessage, TextSendMessage
+from linebot.models import MessageEvent, TextMessage, TextSendMessage, FlexSendMessage
 from utils import handle_approve_by_group, build_forward_message, parse_leave_command, handle_query_pending_leaves
 from firebase_db import save_request, get_user_info_by_line_id, ensure_user_registered, get_supervisor_names
 import os
@@ -106,4 +106,76 @@ def handle_message(event, line_bot_api):
                 event.reply_token,
                 TextSendMessage(text="❗請使用格式：/同意請假 請假編號 員工姓名")
             )
+        return
+    if user_text.startswith("/如何使用"):
+        usage_flex = FlexSendMessage(
+            alt_text="📘 使用說明",
+            contents={
+                "type": "bubble",
+                "size": "mega",
+                "body": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "spacing": "md",
+                    "contents": [
+                        {
+                            "type": "text",
+                            "text": "📘 請假機器人使用說明",
+                            "weight": "bold",
+                            "size": "lg",
+                            "color": "#1DB446",
+                            "wrap": True
+                        },
+                        {
+                            "type": "text",
+                            "text": "📌 請先完成註冊：\n/註冊 王得勝",
+                            "wrap": True,
+                            "size": "sm"
+                        },
+                        {
+                            "type": "text",
+                            "text": "📝 開始請假：\n/請假\n日期：2025/06/01\n時間：09:00-12:00\n事由：外出辦事",
+                            "wrap": True,
+                            "size": "sm"
+                        },
+                        {
+                            "type": "text",
+                            "text": "📅 多日請假也支援：\n（如有跨週末或國定假日請勿使用，請改用單日請假）\n/請假\n日期：2025/06/01 - 2025/06/03\n時間：整天\n事由：年假",
+                            "wrap": True,
+                            "size": "sm"
+                        },
+                        {
+                            "type": "text",
+                            "text": "🔎 查詢請假紀錄：\n/查詢請假",
+                            "wrap": True,
+                            "size": "sm"
+                        },
+                        {
+                            "type": "text",
+                            "text": "🧠 想看完整教學與範例？\n輸入：如何使用",
+                            "wrap": True,
+                            "size": "sm"
+                        },
+                        {
+                            "type": "text",
+                            "text": "📞 如有問題請聯絡管理員協助設定主管或查詢權限。",
+                            "wrap": True,
+                            "size": "sm",
+                            "color": "#888888"
+                        }
+                    ]
+                }
+            }
+        )
+        hello_text = "以下為請假格式："
+        example_text = "\n\n/請假\n日期：\n時間：\n事由："
+
+        line_bot_api.reply_message(
+            event.reply_token,
+            messages=[
+                usage_flex,
+                TextSendMessage(text=hello_text.strip()),
+                TextSendMessage(text=example_text.strip())  # 空白範例文字
+            ]
+        )
         return
