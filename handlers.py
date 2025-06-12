@@ -199,65 +199,6 @@ def handle_message(event, line_bot_api):
         del user_sessions[user_id]
         return
 
-
-    # # ✅ 請假指令
-    # if user_text.startswith("/請假"):
-    #     parsed = parse_leave_command(user_text)
-    #     if not parsed:
-    #         line_bot_api.reply_message(
-    #             event.reply_token,
-    #             TextSendMessage(text="❌ 請假格式錯誤，請確認格式。")
-    #         )
-    #         return
-
-    #     # 取得使用者資訊
-    #     user_info = get_user_info_by_line_id(user_id)
-    #     if not user_info:
-    #         line_bot_api.reply_message(
-    #             event.reply_token,
-    #             TextSendMessage(text="❌ 無法取得使用者資訊，請聯絡管理員。")
-    #         )
-    #         return
-
-    #     # 儲存請假資料
-    #     request_group_id = save_request(
-    #         user_id=user_id,
-    #         user_name=user_info["name"],
-    #         start_date=parsed["start_date"],
-    #         start_time=parsed["start_time"],
-    #         end_date=parsed["end_date"],
-    #         end_time=parsed["end_time"],
-    #         reason=parsed["reason"],
-    #         supervisor_ids=user_info.get("supervisor_ids", [])
-    #     )
-
-    #     # ✅ 生成轉發訊息給主管
-    #     supervisor_ids = user_info.get("supervisor_ids", [])
-    #     if supervisor_ids:
-    #         forward_msg, user_hint_msg = build_forward_message({
-    #             "name": user_info["name"],
-    #             "reason": parsed["reason"],
-    #             "start_date": parsed["start_date"],
-    #             "start_time": parsed["start_time"],
-    #             "end_date": parsed["end_date"],
-    #             "end_time": parsed["end_time"],
-    #             "supervisor_ids": supervisor_ids,
-    #         }, request_id=request_group_id)
-
-    #         messages = [TextSendMessage(text=forward_msg)]
-    #         if user_hint_msg:
-    #             messages.append(TextSendMessage(text=user_hint_msg))
-
-    #         line_bot_api.reply_message(event.reply_token, messages)
-    #     else:
-    #         line_bot_api.reply_message(
-    #             event.reply_token,
-    #             TextSendMessage(
-    #                 text="⚠️ 你尚未設定主管，請聯絡管理員設定 supervisor_ids。\n"
-    #                     "請假資料已儲存，但無法簽核。"
-    #             )
-    #         )
-
     if user_text.startswith("/查詢請假"):
         handle_query_pending_leaves(event, line_bot_api)
         return
@@ -287,7 +228,7 @@ def handle_message(event, line_bot_api):
                     "contents": [
                         {
                             "type": "text",
-                            "text": "📘 請假機器人使用說明",
+                            "text": "📘 請假系統操作教學",
                             "weight": "bold",
                             "size": "lg",
                             "color": "#1DB446",
@@ -295,37 +236,31 @@ def handle_message(event, line_bot_api):
                         },
                         {
                             "type": "text",
-                            "text": "📌 請先完成註冊：\n/註冊 王得勝",
+                            "text": "🟢 點選下方選單中的「我要請假」，依畫面指示選擇請假日期、時間與事由。",
                             "wrap": True,
                             "size": "sm"
                         },
                         {
                             "type": "text",
-                            "text": "📝 開始請假：\n/請假\n日期：2025/06/01\n時間：09:00-12:00\n事由：外出辦事",
+                            "text": "🟢 確認無誤後送出，系統會幫你儲存資料，並產生訊息供你轉傳給主管。",
                             "wrap": True,
                             "size": "sm"
                         },
                         {
                             "type": "text",
-                            "text": "📅 多日請假也支援：\n（如有跨週末或國定假日請勿使用，請改用單日請假）\n/請假\n日期：2025/06/01 - 2025/06/03\n時間：整天\n事由：年假",
+                            "text": "🟢 點選「查詢請假」可查看自己歷次請假紀錄。",
                             "wrap": True,
                             "size": "sm"
                         },
                         {
                             "type": "text",
-                            "text": "🔎 查詢請假紀錄：\n/查詢請假",
+                            "text": "🟢 點選「使用教學」可隨時再次查看本說明。",
                             "wrap": True,
                             "size": "sm"
                         },
                         {
                             "type": "text",
-                            "text": "🧠 想看完整教學與範例？\n輸入：如何使用",
-                            "wrap": True,
-                            "size": "sm"
-                        },
-                        {
-                            "type": "text",
-                            "text": "📞 如有問題請聯絡管理員協助設定主管或查詢權限。",
+                            "text": "📞 若無法請假或查詢，請聯絡管理員協助設定主管。",
                             "wrap": True,
                             "size": "sm",
                             "color": "#888888"
@@ -334,15 +269,9 @@ def handle_message(event, line_bot_api):
                 }
             }
         )
-        hello_text = "以下為請假格式："
-        example_text = "\n\n/請假\n日期：\n時間：\n事由："
 
         line_bot_api.reply_message(
             event.reply_token,
-            messages=[
-                usage_flex,
-                TextSendMessage(text=hello_text.strip()),
-                TextSendMessage(text=example_text.strip())  # 空白範例文字
-            ]
+            messages=[usage_flex]
         )
         return
