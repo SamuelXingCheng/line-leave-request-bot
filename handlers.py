@@ -6,6 +6,55 @@ from firebase_db import save_request, get_user_info_by_line_id, ensure_user_regi
 import os
 import urllib
 
+from datetime import datetime, timedelta
+user_sessions = {}  # user_id ➝ {"start_date":..., "end_date":..., "time":..., "reason":...}
+
+def parse_date_range(text):
+    try:
+        if "-" in text:
+            start_str, end_str = text.split("-")
+            start = datetime.strptime(start_str.strip(), "%Y/%m/%d")
+            end = datetime.strptime(end_str.strip(), "%Y/%m/%d")
+        else:
+            start = end = datetime.strptime(text.strip(), "%Y/%m/%d")
+        return start, end
+    except ValueError:
+        return None, None
+
+def daterange(start_date, end_date):
+    for n in range((end_date - start_date).days + 1):
+        yield start_date + timedelta(n)
+
+def map_time_label(label):
+    mapping = {
+        "整天": ("08:30", "17:30"),
+        "上午": ("08:30", "12:00"),
+        "下午": ("13:00", "17:30")
+    }
+    if "-" in label:
+        parts = label.strip().split("-")
+        return parts[0], parts[1]
+    return mapping.get(label, (None, None))
+
+def normalize_date(date_str):
+    # 將 2025/06/13 轉為 2025-06-13
+    return date_str.replace("/", "-")
+
+def reply_quick_reply(line_bot_api, reply_token, text, options):
+    items = [{
+        "type": "action",
+        "action": {
+            "type": "message",
+            "label": label,
+            "text": value
+        }
+    } for label, value in options]
+
+    line_bot_api.reply_message(
+        reply_token,
+        TextSendMessage(text=text, quick_reply={"items": items})
+    )
+
 def handle_message(event, line_bot_api):
     if not isinstance(event.message, TextMessage):
         return
@@ -15,6 +64,26 @@ def handle_message(event, line_bot_api):
 
     logging.info(f"✅ 收到使用者訊息：{user_text}")
     
+    if user_text == "/menu":
+        flex = FlexSendMessage(
+            alt_text="主選單",
+            contents={
+                "type": "bubble",
+                "body": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "spacing": "md",
+                    "contents": [
+                        {"type": "text", "text": "📋 請選擇操作功能", "weight": "bold", "size": "lg"},
+                        {"type": "button", "action": {"type": "message", "label": "📝 我要請假", "text": "/請假"}, "style": "primary"},
+                        {"type": "button", "action": {"type": "message", "label": "📅 查詢請假", "text": "/查詢請假"}, "style": "secondary"}
+                    ]
+                }
+            }
+        )
+        line_bot_api.reply_message(event.reply_token, flex)
+        return
+
     # ✅ 註冊指令：/註冊 王小明
     if user_text.startswith("/註冊"):
         parts = user_text.split()
@@ -33,63 +102,161 @@ def handle_message(event, line_bot_api):
         )
         return
 
-    # ✅ 請假指令
-    if user_text.startswith("/請假"):
-        parsed = parse_leave_command(user_text)
-        if not parsed:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text="❌ 請假格式錯誤，請確認格式。")
-            )
-            return
+    # 📝 Flex + Quick Reply 請假互動流程
+    session = user_sessions.get(user_id, {})
 
-        # 取得使用者資訊
+    if user_text == "/請假":
+        user_sessions[user_id] = {"step": "date"}
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text="📅 請輸入請假日期（格式：2025/06/17 或 2025/06/17-2025/06/18）：")
+        )
+        return
+
+    if session.get("step") == "date":
+        start, end = parse_date_range(user_text)
+        if not start:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 日期格式錯誤，請重新輸入。"))
+            return
+        session["start_date"] = start
+        session["end_date"] = end
+        session["step"] = "time"
+        user_sessions[user_id] = session
+        reply_quick_reply(line_bot_api, event.reply_token, "🕒 請選擇請假時段：", [
+            ("整天", "整天"),
+            ("上午", "上午"),
+            ("下午", "下午"),
+            ("自定", "自訂時段")
+        ])
+        return
+    
+    if session.get("step") == "time":
+        if user_text in ["整天", "上午", "下午"]:
+            session["time"] = map_time_label(user_text)
+            session["step"] = "reason"
+            user_sessions[user_id] = session
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="📝 請輸入請假事由："))
+            return
+        elif user_text == "自訂時段":
+            session["step"] = "custom_time"
+            user_sessions[user_id] = session
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="請輸入時間範圍（格式：09:00-12:00）："))
+            return
+        else:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 請選擇有效的時段或輸入自訂時段。"))
+            return
+    
+    if session.get("step") == "custom_time":
+        if "-" in user_text:
+            start_time, end_time = user_text.split("-")
+            session["time"] = (start_time.strip(), end_time.strip())
+            session["step"] = "reason"
+            user_sessions[user_id] = session
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="📝 請輸入請假事由："))
+        else:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 時間格式錯誤，請重新輸入：09:00-12:00"))
+        return
+
+    if session.get("step") == "reason":
+        session["reason"] = user_text.strip()
         user_info = get_user_info_by_line_id(user_id)
         if not user_info:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text="❌ 無法取得使用者資訊，請聯絡管理員。")
-            )
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 無法取得使用者資訊。"))
             return
 
-        # 儲存請假資料
-        request_group_id = save_request(
-            user_id=user_id,
-            user_name=user_info["name"],
-            start_date=parsed["start_date"],
-            start_time=parsed["start_time"],
-            end_date=parsed["end_date"],
-            end_time=parsed["end_time"],
-            reason=parsed["reason"],
-            supervisor_ids=user_info.get("supervisor_ids", [])
-        )
-
-        # ✅ 生成轉發訊息給主管
-        supervisor_ids = user_info.get("supervisor_ids", [])
-        if supervisor_ids:
-            forward_msg, user_hint_msg = build_forward_message({
-                "name": user_info["name"],
-                "reason": parsed["reason"],
-                "start_date": parsed["start_date"],
-                "start_time": parsed["start_time"],
-                "end_date": parsed["end_date"],
-                "end_time": parsed["end_time"],
-                "supervisor_ids": supervisor_ids,
-            }, request_id=request_group_id)
-
-            messages = [TextSendMessage(text=forward_msg)]
-            if user_hint_msg:
-                messages.append(TextSendMessage(text=user_hint_msg))
-
-            line_bot_api.reply_message(event.reply_token, messages)
-        else:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(
-                    text="⚠️ 你尚未設定主管，請聯絡管理員設定 supervisor_ids。\n"
-                        "請假資料已儲存，但無法簽核。"
-                )
+        messages = []
+        for date in daterange(session["start_date"], session["end_date"]):
+            date_str = normalize_date(date.strftime("%Y/%m/%d"))
+            request_group_id = save_request(
+                user_id=user_id,
+                user_name=user_info["name"],
+                start_date=date_str,
+                start_time=session["time"][0],
+                end_date=date_str,
+                end_time=session["time"][1],
+                reason=session["reason"],
+                supervisor_ids=user_info.get("supervisor_ids", [])
             )
+            supervisor_ids = user_info.get("supervisor_ids", [])
+            if supervisor_ids:
+                forward_msg, user_hint_msg = build_forward_message({
+                    "name": user_info["name"],
+                    "reason": session["reason"],
+                    "start_date": date_str,
+                    "start_time": session["time"][0],
+                    "end_date": date_str,
+                    "end_time": session["time"][1],
+                    "supervisor_ids": supervisor_ids
+                }, request_id=request_group_id)
+                messages.append(TextSendMessage(text=forward_msg))
+                if user_hint_msg:
+                    messages.append(TextSendMessage(text=user_hint_msg))
+            else:
+                messages.append(TextSendMessage(text="⚠️ 你尚未設定主管，請聯絡管理員設定 supervisor_ids。請假資料已儲存，但無法簽核。")
+                )
+
+        line_bot_api.reply_message(event.reply_token, messages)
+        del user_sessions[user_id]
+        return
+
+
+    # # ✅ 請假指令
+    # if user_text.startswith("/請假"):
+    #     parsed = parse_leave_command(user_text)
+    #     if not parsed:
+    #         line_bot_api.reply_message(
+    #             event.reply_token,
+    #             TextSendMessage(text="❌ 請假格式錯誤，請確認格式。")
+    #         )
+    #         return
+
+    #     # 取得使用者資訊
+    #     user_info = get_user_info_by_line_id(user_id)
+    #     if not user_info:
+    #         line_bot_api.reply_message(
+    #             event.reply_token,
+    #             TextSendMessage(text="❌ 無法取得使用者資訊，請聯絡管理員。")
+    #         )
+    #         return
+
+    #     # 儲存請假資料
+    #     request_group_id = save_request(
+    #         user_id=user_id,
+    #         user_name=user_info["name"],
+    #         start_date=parsed["start_date"],
+    #         start_time=parsed["start_time"],
+    #         end_date=parsed["end_date"],
+    #         end_time=parsed["end_time"],
+    #         reason=parsed["reason"],
+    #         supervisor_ids=user_info.get("supervisor_ids", [])
+    #     )
+
+    #     # ✅ 生成轉發訊息給主管
+    #     supervisor_ids = user_info.get("supervisor_ids", [])
+    #     if supervisor_ids:
+    #         forward_msg, user_hint_msg = build_forward_message({
+    #             "name": user_info["name"],
+    #             "reason": parsed["reason"],
+    #             "start_date": parsed["start_date"],
+    #             "start_time": parsed["start_time"],
+    #             "end_date": parsed["end_date"],
+    #             "end_time": parsed["end_time"],
+    #             "supervisor_ids": supervisor_ids,
+    #         }, request_id=request_group_id)
+
+    #         messages = [TextSendMessage(text=forward_msg)]
+    #         if user_hint_msg:
+    #             messages.append(TextSendMessage(text=user_hint_msg))
+
+    #         line_bot_api.reply_message(event.reply_token, messages)
+    #     else:
+    #         line_bot_api.reply_message(
+    #             event.reply_token,
+    #             TextSendMessage(
+    #                 text="⚠️ 你尚未設定主管，請聯絡管理員設定 supervisor_ids。\n"
+    #                     "請假資料已儲存，但無法簽核。"
+    #             )
+    #         )
 
     if user_text.startswith("/查詢請假"):
         handle_query_pending_leaves(event, line_bot_api)
