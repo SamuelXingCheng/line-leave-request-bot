@@ -102,18 +102,47 @@ def handle_message(event, line_bot_api):
         )
         return
 
+    # ✅ 任何階段輸入 /取消請假 都可中止流程
+    if user_text == "/取消請假":
+        user_sessions.pop(user_id, None)  # 清除暫存請假資料
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text="❌ 已取消請假流程。如需重新申請，請點選「我要請假」。")
+        )
+        return
+
     # 📝 Flex + Quick Reply 請假互動流程
     session = user_sessions.get(user_id, {})
 
     if user_text == "/請假":
         user_sessions[user_id] = {"step": "date"}
-        line_bot_api.reply_message(
+
+        today = datetime.now().strftime("%Y/%m/%d")
+        tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y/%m/%d")
+        day_after = (datetime.now() + timedelta(days=2)).strftime("%Y/%m/%d")
+
+        reply_quick_reply(
+            line_bot_api,
             event.reply_token,
-            TextSendMessage(text="📅 請輸入請假日期（格式：2025/06/17 或 2025/06/17-2025/06/18）：")
+            "📅 請選擇請假日期或自訂輸入：",
+            [
+                (f"📆 今天 ({today})", today),
+                (f"📆 明天 ({tomorrow})", tomorrow),
+                (f"📆 後天 ({day_after})", day_after),
+                ("✏️ 自訂日期", "自訂日期"),
+                ("❌ 取消請假", "/取消請假")
+            ]
         )
         return
 
     if session.get("step") == "date":
+        if user_text == "自訂日期":
+            # 進入自訂日期輸入
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="請輸入請假日期（例如：2025/06/17 或 2025/06/17-2025/06/18）：")
+            )
+            return
         start, end = parse_date_range(user_text)
         if not start:
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 日期格式錯誤，請重新輸入。"))
@@ -135,7 +164,19 @@ def handle_message(event, line_bot_api):
             session["time"] = map_time_label(user_text)
             session["step"] = "reason"
             user_sessions[user_id] = session
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="📝 請輸入請假事由："))
+            reply_quick_reply(
+                line_bot_api,
+                event.reply_token,
+                "📝 請選擇請假類型或輸入自訂事由：",
+                [
+                    ("🤒 病假", "病假"),
+                    ("📌 事假", "事假"),
+                    ("🏛️ 公假", "公假"),
+                    ("🖤 喪假", "喪假"),
+                    ("✏️ 自訂", "自訂事由"),
+                    ("❌ 取消請假", "/取消請假")
+                ]
+            )
             return
         elif user_text == "自訂時段":
             session["step"] = "custom_time"
@@ -152,18 +193,40 @@ def handle_message(event, line_bot_api):
             session["time"] = (start_time.strip(), end_time.strip())
             session["step"] = "reason"
             user_sessions[user_id] = session
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="📝 請輸入請假事由："))
+            reply_quick_reply(
+                line_bot_api,
+                event.reply_token,
+                "📝 請選擇請假類型或輸入自訂事由：",
+                [
+                    ("🤒 病假", "病假"),
+                    ("📌 事假", "事假"),
+                    ("🏛️ 公假", "公假"),
+                    ("🖤 喪假", "喪假"),
+                    ("✏️ 自訂", "自訂事由"),
+                    ("❌ 取消請假", "/取消請假")
+                ]
+            )
         else:
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 時間格式錯誤，請重新輸入：09:00-12:00"))
         return
 
     if session.get("step") == "reason":
+        # 若點選「✏️ 自訂」後輸入內容
+        if user_text == "自訂事由":
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="✏️ 請輸入請假事由（例如：家中有事等）：")
+            )
+            return
+
+        # ✅ 記錄事由
         session["reason"] = user_text.strip()
         user_info = get_user_info_by_line_id(user_id)
         if not user_info:
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 無法取得使用者資訊。"))
             return
 
+        # ⬇️ 以下原有儲存與通知邏輯
         messages = []
         for date in daterange(session["start_date"], session["end_date"]):
             date_str = normalize_date(date.strftime("%Y/%m/%d"))
@@ -192,12 +255,13 @@ def handle_message(event, line_bot_api):
                 if user_hint_msg:
                     messages.append(TextSendMessage(text=user_hint_msg))
             else:
-                messages.append(TextSendMessage(text="⚠️ 你尚未設定主管，請聯絡管理員設定 supervisor_ids。請假資料已儲存，但無法簽核。")
-                )
+                messages.append(TextSendMessage(
+                    text="⚠️ 你尚未設定主管，請聯絡管理員設定 supervisor_ids。請假資料已儲存，但無法簽核。"))
 
         line_bot_api.reply_message(event.reply_token, messages)
         del user_sessions[user_id]
         return
+
 
     if user_text.startswith("/查詢請假"):
         handle_query_pending_leaves(event, line_bot_api)
