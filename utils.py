@@ -10,6 +10,7 @@ import os
 import urllib.parse
 
 from pytz import timezone
+from collections import defaultdict
 
 def format_tw_time(timestamp):
     if not timestamp:
@@ -238,32 +239,80 @@ def summarize_leave_days_and_hours(request_docs) -> str:
 
 
 def handle_query_pending_leaves(event, line_bot_api):
-    supervisor_id = event.source.user_id
+    user_id = event.source.user_id
     db = get_db()
+    tz = timezone("Asia/Taipei")
 
-    docs = db.collection("requests")\
-             .order_by("created_at", direction=firestore.Query.DESCENDING)\
-             .stream()
+    # 🔍 查詢自己提出的請假紀錄
+    user_requests = db.collection("requests")\
+        .where("user_id", "==", user_id)\
+        .order_by("start_at", direction=firestore.Query.DESCENDING)\
+        .stream()
 
-    messages = []
+    monthly_records = defaultdict(list)
+    for doc in user_requests:
+        data = doc.to_dict()
+        start = data.get("start_at")
+        end = data.get("end_at")
+        if not start or not end:
+            continue
+        ym = start.astimezone(tz).strftime("%Y/%m")
+        start_str = format_tw_time(start)
+        end_str = format_tw_time(end)
+        status_map = data.get("approvals", {})
+        status_text = "⏳ 待審" if any(v == "pending" for v in status_map.values()) else "✅ 已審"
+        monthly_records[ym].append(f"📄 {start_str} ~ {end_str}（{status_text}）\n📝 {data.get('reason', '')}")
 
-    for doc in docs:
+    user_msgs = []
+    for ym in sorted(monthly_records.keys(), reverse=True):
+        user_msgs.append(f"📅 {ym} 月份：")
+        user_msgs.extend(monthly_records[ym])
+
+    # 🔍 查詢需要簽核的請假
+    approve_docs = db.collection("requests")\
+        .order_by("created_at", direction=firestore.Query.DESCENDING)\
+        .stream()
+
+    approval_msgs = []
+    for doc in approve_docs:
         data = doc.to_dict()
         approvals = data.get("approvals", {})
-
-        if approvals.get(supervisor_id) == "pending":
+        if approvals.get(user_id) == "pending":
             name = data.get("user_name", "未知")
             reason = data.get("reason", "")
             start = format_tw_time(data.get("start_at"))
             end = format_tw_time(data.get("end_at"))
-            messages.append(f"👤 {name}\n🗓️ {start} ~ {end}\n📝 {reason}")
+            approval_msgs.append(f"🧾 {name}\n🗓️ {start} ~ {end}\n📝 {reason}")
 
-    reply = "\n\n".join(messages) if messages else "✅ 目前沒有待您簽核的請假申請。"
+    # ✅ 加入今年請假統計
+    start_of_year = tz.localize(datetime(datetime.now().year, 1, 1))
+    this_year_requests = db.collection("requests")\
+        .where("user_id", "==", user_id)\
+        .where("start_at", ">=", start_of_year)\
+        .stream()
+    year_summary = summarize_leave_days_and_hours(this_year_requests)
 
+    # 🔧 組合回覆文字
+    reply_parts = []
+
+    if user_msgs:
+        reply_parts.append("📌 你的請假紀錄：\n" + "\n\n".join(user_msgs))
+        reply_parts.append(f"📊 今年累計：{year_summary}")
+    else:
+        reply_parts.append("📌 你尚未提出任何請假申請。")
+
+    if approval_msgs:
+        reply_parts.append("📥 待你簽核的申請：\n" + "\n\n".join(approval_msgs))
+    else:
+        reply_parts.append("📥 目前沒有待你簽核的請假。")
+
+    # ✅ 回覆訊息
+    reply_text = "\n\n".join(reply_parts)
     line_bot_api.reply_message(
         event.reply_token,
-        TextSendMessage(text=reply)
+        TextSendMessage(text=reply_text)
     )
+
 
 def handle_approve_by_group(event, line_bot_api, group_id, user_name):
     supervisor_id = event.source.user_id
