@@ -1,7 +1,7 @@
 # handlers.py
 import logging
 from linebot.models import MessageEvent, TextMessage, TextSendMessage, FlexSendMessage
-from utils import handle_approve_by_group, build_forward_message, parse_leave_command, handle_query_pending_leaves
+from utils import handle_approve_by_group, build_forward_message, parse_leave_command, handle_query_pending_leaves, handle_delete_request
 from firebase_db import save_request, get_user_info_by_line_id, ensure_user_registered, get_supervisor_names
 import os
 import urllib
@@ -101,6 +101,18 @@ def handle_message(event, line_bot_api):
             TextSendMessage(text=reply)
         )
         return
+    if user_text.startswith("/刪除請假"):
+        parts = user_text.split()
+        if len(parts) == 2:
+            request_id = parts[1]
+            handle_delete_request(event, line_bot_api, request_id)
+        else:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="❗請使用格式：/刪除請假 [請假ID]")
+            )
+        return
+
 
     # ✅ 任何階段輸入 /取消請假 都可中止流程
     if user_text == "/取消請假":
@@ -155,7 +167,8 @@ def handle_message(event, line_bot_api):
             ("整天", "整天"),
             ("上午", "上午"),
             ("下午", "下午"),
-            ("自定", "自訂時段")
+            ("自定", "自訂時段"),
+            ("❌ 取消請假", "/取消請假")
         ])
         return
     

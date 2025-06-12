@@ -1,7 +1,7 @@
 # utils.py
 from datetime import datetime
 from firebase_db import get_db
-from linebot.models import TextSendMessage
+from linebot.models import TextSendMessage, FlexSendMessage
 from firebase_admin import firestore
 
 # ✅ 支援整天請假與單日區間請假
@@ -214,6 +214,34 @@ def calculate_effective_hours(start: datetime, end: datetime) -> float:
     effective_seconds = max(0, total_seconds - overlap_seconds)
     return round(effective_seconds / 3600, 2)
 
+def build_leave_flex_card(doc_id, name, reason, start, end, is_own=False, can_delete=False):
+    body_contents = [
+        {"type": "text", "text": f"🧾 {name}", "weight": "bold", "size": "md"},
+        {"type": "text", "text": f"🗓️ {start} ~ {end}", "size": "sm", "wrap": True},
+        {"type": "text", "text": f"📝 {reason}", "size": "sm", "wrap": True}
+    ]
+
+    footer_contents = []
+
+    # 🔘 加入刪除按鈕
+    if is_own and can_delete:
+        footer_contents.append({
+            "type": "button",
+            "style": "primary",
+            "color": "#FF5555",
+            "action": {
+                "type": "message",
+                "label": "🗑️ 刪除請假",
+                "text": f"/刪除請假 {doc_id}"
+            }
+        })
+
+    return {
+        "type": "bubble",
+        "body": {"type": "box", "layout": "vertical", "contents": body_contents},
+        "footer": {"type": "box", "layout": "vertical", "contents": footer_contents}
+    }
+
 
 def summarize_leave_days_and_hours(request_docs) -> str:
     """
@@ -236,55 +264,90 @@ def summarize_leave_days_and_hours(request_docs) -> str:
     total_days = len(date_set)
     return f"請假天數共 {total_days} 天，時數共 {round(total_hours)} 小時"
 
-
-
-def handle_query_pending_leaves(event, line_bot_api):
+def handle_delete_request(event, line_bot_api, request_id):
     user_id = event.source.user_id
     db = get_db()
+    doc_ref = db.collection("requests").document(request_id)
+    doc = doc_ref.get()
+
+    if not doc.exists:
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 找不到該筆請假紀錄。"))
+        return
+
+    data = doc.to_dict()
+
+    # 僅允許刪除自己的請假
+    if data.get("user_id") != user_id:
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⚠️ 你無權刪除此請假紀錄。"))
+        return
+
+    # 僅允許刪除尚未簽核完成的
+    if not any(v == "pending" for v in data.get("approvals", {}).values()):
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 此請假已簽核完成，無法刪除。"))
+        return
+
+    # ✅ 執行刪除
+    doc_ref.delete()
+
+    # ✅ 呼叫原本查詢請假紀錄函式，但改為回傳訊息物件，而不是直接 reply
+    messages = build_pending_leave_messages(user_id)  # ⚠️ 你需要將原本 handle_query_pending_leaves 拆成此函式
+    messages.insert(0, TextSendMessage(text="🗑️ 請假紀錄已成功刪除。以下為最新紀錄："))
+
+    # ✅ 一次性回覆
+    line_bot_api.reply_message(event.reply_token, messages)
+
+def build_pending_leave_messages(user_id):
+    db = get_db()
     tz = timezone("Asia/Taipei")
+    from linebot.models import FlexSendMessage, TextSendMessage
 
     # 🔍 查詢自己提出的請假紀錄
-    user_requests = db.collection("requests")\
-        .where("user_id", "==", user_id)\
-        .order_by("start_at", direction=firestore.Query.DESCENDING)\
-        .stream()
+    user_requests = list(db.collection("requests")
+        .where("user_id", "==", user_id)
+        .order_by("start_at", direction=firestore.Query.DESCENDING)
+        .stream())
 
-    monthly_records = defaultdict(list)
+    # 🔍 查詢需要簽核的請假
+    approve_docs = list(db.collection("requests")
+        .order_by("created_at", direction=firestore.Query.DESCENDING)
+        .stream())
+
+    flex_bubbles = []
+
     for doc in user_requests:
         data = doc.to_dict()
         start = data.get("start_at")
         end = data.get("end_at")
         if not start or not end:
             continue
-        ym = start.astimezone(tz).strftime("%Y/%m")
-        start_str = format_tw_time(start)
-        end_str = format_tw_time(end)
         status_map = data.get("approvals", {})
-        status_text = "⏳ 待審" if any(v == "pending" for v in status_map.values()) else "✅ 已審"
-        monthly_records[ym].append(f"📄 {start_str} ~ {end_str}（{status_text}）\n📝 {data.get('reason', '')}")
+        is_pending = any(v == "pending" for v in status_map.values())
+        bubble = build_leave_flex_card(
+            doc.id,
+            name="你自己",
+            reason=data.get("reason", ""),
+            start=format_tw_time(start),
+            end=format_tw_time(end),
+            is_own=True,
+            can_delete=is_pending
+        )
+        flex_bubbles.append(bubble)
 
-    user_msgs = []
-    for ym in sorted(monthly_records.keys(), reverse=True):
-        user_msgs.append(f"📅 {ym} 月份：")
-        user_msgs.extend(monthly_records[ym])
-
-    # 🔍 查詢需要簽核的請假
-    approve_docs = db.collection("requests")\
-        .order_by("created_at", direction=firestore.Query.DESCENDING)\
-        .stream()
-
-    approval_msgs = []
     for doc in approve_docs:
         data = doc.to_dict()
         approvals = data.get("approvals", {})
-        if approvals.get(user_id) == "pending":
-            name = data.get("user_name", "未知")
-            reason = data.get("reason", "")
-            start = format_tw_time(data.get("start_at"))
-            end = format_tw_time(data.get("end_at"))
-            approval_msgs.append(f"🧾 {name}\n🗓️ {start} ~ {end}\n📝 {reason}")
+        if approvals.get(user_id) != "pending":
+            continue
+        bubble = build_leave_flex_card(
+            doc.id,
+            name=data.get("user_name", "未知"),
+            reason=data.get("reason", ""),
+            start=format_tw_time(data.get("start_at")),
+            end=format_tw_time(data.get("end_at"))
+        )
+        flex_bubbles.append(bubble)
 
-    # ✅ 加入今年請假統計
+    # 📊 今年統計
     start_of_year = tz.localize(datetime(datetime.now().year, 1, 1))
     this_year_requests = db.collection("requests")\
         .where("user_id", "==", user_id)\
@@ -292,26 +355,25 @@ def handle_query_pending_leaves(event, line_bot_api):
         .stream()
     year_summary = summarize_leave_days_and_hours(this_year_requests)
 
-    # 🔧 組合回覆文字
-    reply_parts = []
-
-    if user_msgs:
-        reply_parts.append("📌 你的請假紀錄：\n" + "\n\n".join(user_msgs))
-        reply_parts.append(f"📊 今年累計：{year_summary}")
+    if flex_bubbles:
+        return [
+            FlexSendMessage(
+                alt_text="📋 請假紀錄與簽核項目",
+                contents={
+                    "type": "carousel",
+                    "contents": flex_bubbles[:10]
+                }
+            ),
+            TextSendMessage(text=f"📊 今年累計：{year_summary}")
+        ]
     else:
-        reply_parts.append("📌 你尚未提出任何請假申請。")
+        return [TextSendMessage(text="📌 你尚未提出任何請假，也沒有待簽核項目。")]
 
-    if approval_msgs:
-        reply_parts.append("📥 待你簽核的申請：\n" + "\n\n".join(approval_msgs))
-    else:
-        reply_parts.append("📥 目前沒有待你簽核的請假。")
+def handle_query_pending_leaves(event, line_bot_api):
+    user_id = event.source.user_id
+    messages = build_pending_leave_messages(user_id)
+    line_bot_api.reply_message(event.reply_token, messages)
 
-    # ✅ 回覆訊息
-    reply_text = "\n\n".join(reply_parts)
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(text=reply_text)
-    )
 
 
 def handle_approve_by_group(event, line_bot_api, group_id, user_name):
