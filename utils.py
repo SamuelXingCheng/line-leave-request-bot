@@ -198,20 +198,23 @@ def get_user_display_name(user_id):
     return f"使用者 {user_id[-4:]}"  # 例如：使用者 3f8a
 
 def calculate_effective_hours(start: datetime, end: datetime) -> float:
-    """計算排除午休後的一段請假時數"""
-    total_seconds = (end - start).total_seconds()
-    overlap_seconds = 0
+    """計算排除午休後的一段請假時數（轉換為台灣時區後計算）"""
+    tz = timezone("Asia/Taipei")
+    start = start.astimezone(tz)
+    end = end.astimezone(tz)
 
+    if start.date() != end.date():
+        raise ValueError("請假時段需為同一日內")
+
+    total_seconds = (end - start).total_seconds()
+    
+    # 午休時間（固定 12:00–13:00）
     rest_start = start.replace(hour=12, minute=0, second=0, microsecond=0)
     rest_end = start.replace(hour=13, minute=0, second=0, microsecond=0)
 
-    # 計算與午休重疊秒數
-    latest_start = max(start, rest_start)
-    earliest_end = min(end, rest_end)
-    if latest_start < earliest_end:
-        overlap_seconds = (earliest_end - latest_start).total_seconds()
-
-    effective_seconds = max(0, total_seconds - overlap_seconds)
+    # 計算與午休重疊的秒數
+    rest_overlap = max(0, (min(end, rest_end) - max(start, rest_start)).total_seconds())
+    effective_seconds = total_seconds - rest_overlap
     return round(effective_seconds / 3600, 2)
 
 def build_leave_flex_card(doc_id, name, reason, start, end, is_own=False, can_delete=False):
@@ -261,7 +264,6 @@ def summarize_leave_days_and_hours(request_docs) -> str:
 
         if not start or not end:
             continue
-
         hours = calculate_effective_hours(start, end)
         hours_by_reason[reason] += hours
         days_by_reason[reason].add(start.date())
