@@ -277,9 +277,67 @@ def handle_message(event, line_bot_api):
 
 
     if user_text.startswith("/查詢請假"):
-        handle_query_pending_leaves(event, line_bot_api)
+        user_sessions[user_id] = {"step": "query_range"}
+        reply_quick_reply(
+            line_bot_api,
+            event.reply_token,
+            "請選擇要查詢的範圍：",
+            [
+                ("📅 今天", "查今天"),
+                ("📆 本週", "查本週"),
+                ("📊 本月", "查本月"),
+                ("📋 查今年", "查今年"),
+                ("✏️ 自訂區間", "自訂查詢"),
+                ("❌ 取消", "/取消查詢")
+            ]
+        )
         return
 
+    if session.get("step") == "query_range":
+        today = datetime.now().date()
+
+        if user_text == "查今天":
+            start_date = end_date = today
+        elif user_text == "查本週":
+            start_date = today - timedelta(days=today.weekday())
+            end_date = start_date + timedelta(days=6)
+        elif user_text == "查本月":
+            start_date = today.replace(day=1)
+            next_month = start_date.replace(day=28) + timedelta(days=4)
+            end_date = next_month.replace(day=1) - timedelta(days=1)
+        elif user_text == "查今年":
+            start_date = today.replace(month=1, day=1)
+            end_date = today.replace(month=12, day=31)
+        elif user_text == "自訂查詢":
+            session["step"] = "custom_query"
+            user_sessions[user_id] = session
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="請輸入起訖日期（格式：2025/07/01-2025/07/15）"))
+            return
+        elif user_text == "/取消查詢":
+            del user_sessions[user_id]
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 已取消查詢"))
+            return
+        else:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 指令無效，請重新選擇。"))
+            return
+
+        handle_query_pending_leaves(event, line_bot_api, start_date, end_date)
+        del user_sessions[user_id]
+        return
+
+    if session.get("step") == "custom_query":
+        try:
+            start_str, end_str = user_text.split("-")
+            start_date = datetime.strptime(start_str.strip(), "%Y/%m/%d").date()
+            end_date = datetime.strptime(end_str.strip(), "%Y/%m/%d").date()
+        except Exception:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 日期格式錯誤，請用 2025/07/01-2025/07/15"))
+            return
+
+        handle_query_pending_leaves(event, line_bot_api, start_date, end_date)
+        del user_sessions[user_id]
+        return
+        
     if user_text.startswith("/同意請假"):
         parts = user_text.split()
         if len(parts) == 3:

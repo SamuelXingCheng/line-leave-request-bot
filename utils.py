@@ -296,23 +296,24 @@ def handle_delete_request(event, line_bot_api, request_id):
     # ✅ 一次性回覆
     line_bot_api.reply_message(event.reply_token, messages)
 
-def build_pending_leave_messages(user_id):
+def build_pending_leave_messages(user_id, start_date=None, end_date=None):
+    from linebot.models import FlexSendMessage, TextSendMessage
     db = get_db()
     tz = timezone("Asia/Taipei")
-    from linebot.models import FlexSendMessage, TextSendMessage
-
-    # 🔍 查詢自己提出的請假紀錄
-    user_requests = list(db.collection("requests")
-        .where("user_id", "==", user_id)
-        .order_by("start_at", direction=firestore.Query.DESCENDING)
-        .stream())
-
-    # 🔍 查詢需要簽核的請假
-    approve_docs = list(db.collection("requests")
-        .order_by("created_at", direction=firestore.Query.DESCENDING)
-        .stream())
-
     flex_bubbles = []
+
+    # ✅ 查詢自己的請假紀錄，加上區間條件
+    user_query = db.collection("requests").where("user_id", "==", user_id)
+
+    if start_date:
+        start_ts = tz.localize(datetime.combine(start_date, datetime.min.time()))
+        user_query = user_query.where("start_at", ">=", start_ts)
+
+    if end_date:
+        end_ts = tz.localize(datetime.combine(end_date, datetime.max.time()))
+        user_query = user_query.where("start_at", "<=", end_ts)
+
+    user_requests = list(user_query.order_by("start_at", direction=firestore.Query.DESCENDING).stream())
 
     for doc in user_requests:
         data = doc.to_dict()
@@ -333,6 +334,11 @@ def build_pending_leave_messages(user_id):
         )
         flex_bubbles.append(bubble)
 
+    # ✅ 查詢需要我審核的請假（不篩選日期）
+    approve_docs = list(db.collection("requests")
+        .order_by("created_at", direction=firestore.Query.DESCENDING)
+        .stream())
+
     for doc in approve_docs:
         data = doc.to_dict()
         approvals = data.get("approvals", {})
@@ -347,32 +353,51 @@ def build_pending_leave_messages(user_id):
         )
         flex_bubbles.append(bubble)
 
-    # 📊 今年統計
-    start_of_year = tz.localize(datetime(datetime.now().year, 1, 1))
-    this_year_requests = db.collection("requests")\
-        .where("user_id", "==", user_id)\
-        .where("start_at", ">=", start_of_year)\
-        .stream()
-    year_summary = summarize_leave_days_and_hours(this_year_requests)
+    # ✅ 統計指定區間的請假時數
+    summary_msg = None
+    if start_date or end_date:
+        summary_query = db.collection("requests").where("user_id", "==", user_id)
 
+        if start_date:
+            start_ts = tz.localize(datetime.combine(start_date, datetime.min.time()))
+            summary_query = summary_query.where("start_at", ">=", start_ts)
+
+        if end_date:
+            end_ts = tz.localize(datetime.combine(end_date, datetime.max.time()))
+            summary_query = summary_query.where("start_at", "<=", end_ts)
+
+        filtered_requests = summary_query.stream()
+        summary = summarize_leave_days_and_hours(filtered_requests)
+
+        summary_range_str = f"{start_date.strftime('%Y/%m/%d')} ~ {end_date.strftime('%Y/%m/%d')}" if start_date and end_date else "查詢區間"
+        summary_msg = TextSendMessage(text=f"📊 {summary_range_str} 請假統計：{summary}")
+
+    # ✅ 組合回應訊息
     if flex_bubbles:
-        return [
+        reply_msgs = [
             FlexSendMessage(
                 alt_text="📋 請假紀錄與簽核項目",
                 contents={
                     "type": "carousel",
                     "contents": flex_bubbles[:10]
                 }
-            ),
-            TextSendMessage(text=f"📊 今年累計：{year_summary}")
+            )
         ]
+        if summary_msg:
+            reply_msgs.append(summary_msg)
+        return reply_msgs
     else:
         return [TextSendMessage(text="📌 你尚未提出任何請假，也沒有待簽核項目。")]
 
-def handle_query_pending_leaves(event, line_bot_api):
+
+def handle_query_pending_leaves(event, line_bot_api, start_date=None, end_date=None):
     user_id = event.source.user_id
-    messages = build_pending_leave_messages(user_id)
-    line_bot_api.reply_message(event.reply_token, messages)
+    try:
+        messages = build_pending_leave_messages(user_id, start_date, end_date)
+        line_bot_api.reply_message(event.reply_token, messages)
+    except Exception as e:
+        print("[查詢請假] 錯誤：", e)
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 查詢失敗，請稍後再試。"))
 
 
 
