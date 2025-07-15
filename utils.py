@@ -245,24 +245,42 @@ def build_leave_flex_card(doc_id, name, reason, start, end, is_own=False, can_de
 
 def summarize_leave_days_and_hours(request_docs) -> str:
     """
-    傳入 Firestore 請假文件 iterable，回傳：「請假天數共 X 天，時數共 Y 小時」
-    - 天數：依據 start_at.date() ~ end_at.date()
-    - 時數：加總排除午休後的時段
+    回傳各類請假類型的統計：「🌴 特休：X 小時（Y 天）」格式
+    - 類型依 reason 分類
+    - 時數使用 calculate_effective_hours()
+    - 天數依據 start_at.date() ~ end_at.date()
     """
-    total_hours = 0
-    date_set = set()
+    hours_by_reason = defaultdict(float)
+    days_by_reason = defaultdict(set)
 
     for doc in request_docs:
         data = doc.to_dict()
+        reason = data.get("reason", "未分類")
         start = data.get("start_at")
         end = data.get("end_at")
-        if start and end:
-            # 記錄每個請假的日期（自然日）
-            date_set.add(start.date())
-            total_hours += calculate_effective_hours(start, end)
 
-    total_days = len(date_set)
-    return f"請假天數共 {total_days} 天，時數共 {round(total_hours)} 小時"
+        if not start or not end:
+            continue
+
+        hours = calculate_effective_hours(start, end)
+        hours_by_reason[reason] += hours
+        days_by_reason[reason].add(start.date())
+
+    if not hours_by_reason:
+        return "查無請假統計資料。"
+
+    # 🎨 emoji 對應表（可自行擴充）
+    emoji_map = {
+        "特休": "🌴", "事假": "📌", "病假": "🤒", "婚假": "💒",
+        "喪假": "🖤", "產假": "🤰", "公假": "🏛️", "未分類": "📁"
+    }
+
+    lines = []
+    for reason, hours in sorted(hours_by_reason.items(), key=lambda x: -x[1]):
+        emoji = emoji_map.get(reason, "📁")
+        lines.append(f"{emoji} {reason}：{round(hours)} 小時")
+
+    return "\n".join(lines)
 
 def handle_delete_request(event, line_bot_api, request_id):
     user_id = event.source.user_id
@@ -370,7 +388,7 @@ def build_pending_leave_messages(user_id, start_date=None, end_date=None):
         summary = summarize_leave_days_and_hours(filtered_requests)
 
         summary_range_str = f"{start_date.strftime('%Y/%m/%d')} ~ {end_date.strftime('%Y/%m/%d')}" if start_date and end_date else "查詢區間"
-        summary_msg = TextSendMessage(text=f"📊 {summary_range_str} 請假統計：{summary}")
+        summary_msg = TextSendMessage(text=f"📊 {summary_range_str} 請假統計：\n{summary}")
 
     # ✅ 組合回應訊息
     if flex_bubbles:
