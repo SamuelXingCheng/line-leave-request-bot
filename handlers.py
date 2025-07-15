@@ -211,13 +211,15 @@ def handle_message(event, line_bot_api):
             reply_quick_reply(
                 line_bot_api,
                 event.reply_token,
-                "📝 請選擇請假類型或輸入自訂事由：",
+                "📝 請選擇請假類型：",
                 [
-                    ("🤒 病假", "病假"),
+                    ("🌴 特休", "特休"),
                     ("📌 事假", "事假"),
-                    ("🏛️ 公假", "公假"),
+                    ("🤒 病假", "病假"),
+                    ("💒 婚假", "婚假"),
                     ("🖤 喪假", "喪假"),
-                    ("✏️ 自訂", "自訂事由"),
+                    ("🤰 產假", "產假"),
+                    ("🏛️ 公假", "公假"),
                     ("❌ 取消請假", "/取消請假")
                 ]
             )
@@ -226,13 +228,6 @@ def handle_message(event, line_bot_api):
         return
 
     if session.get("step") == "reason":
-        # 若點選「✏️ 自訂」後輸入內容
-        if user_text == "自訂事由":
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text="✏️ 請輸入請假事由（例如：家中有事等）：")
-            )
-            return
 
         # ✅ 記錄事由
         session["reason"] = user_text.strip()
