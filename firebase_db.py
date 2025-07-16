@@ -16,7 +16,7 @@ db = firestore.client()
 def get_db():
     return firestore.client()
 
-def save_request(user_id, user_name, start_date, start_time, end_date, end_time, reason, supervisor_ids):
+def save_request(user_id, user_name, start_date, start_time, end_date, end_time, reason, supervisor_ids, leave_type=None):
     tz = pytz.timezone("Asia/Taipei")
     start_dt = tz.localize(datetime.strptime(f"{start_date} {start_time}", "%Y-%m-%d %H:%M"))
     end_dt = tz.localize(datetime.strptime(f"{end_date} {end_time}", "%Y-%m-%d %H:%M"))
@@ -27,6 +27,8 @@ def save_request(user_id, user_name, start_date, start_time, end_date, end_time,
     # 預設上下班時間
     default_start = time(8, 30)
     default_end = time(17, 30)
+
+    approvals = {sid: "pending" for sid in supervisor_ids}  # ✅ 加上 approvals 定義
 
     while current_date.date() <= end_dt.date():
         date_only = current_date.date()
@@ -43,20 +45,19 @@ def save_request(user_id, user_name, start_date, start_time, end_date, end_time,
         if date_only == end_dt.date():
             request_end = end_dt
 
-        db.collection("requests").add({
-            "request_group_id": group_id,
+        doc_ref = db.collection("requests").add({
             "user_id": user_id,
             "user_name": user_name,
-            "start_at": request_start,
-            "end_at": request_end,
+            "start_at": request_start,         # ✅ 修正為單日請假起
+            "end_at": request_end,             # ✅ 修正為單日請假訖
             "reason": reason,
+            "leave_type": leave_type,
             "status": "pending",
             "supervisors": supervisor_ids,
-            "approvals": {sid: "pending" for sid in supervisor_ids},
+            "approvals": approvals,
             "created_at": datetime.now(tz)
         })
 
-        # 下一天
         current_date += timedelta(days=1)
 
     return group_id
@@ -83,7 +84,8 @@ def save_requests(request_list):
             "user_name": req.get("user_name"),
             "start_at": start_at,
             "end_at": end_at,
-            "reason": req["reason"],
+            "reason": req["reason"],                # 📝 實際說明
+            "leave_type": req["type"],   # 🏷️ 假別（新增）
             "status": "pending",
             "supervisors": supervisors,
             "approvals": approvals,
