@@ -2,11 +2,13 @@
 import logging
 from linebot.models import MessageEvent, TextMessage, TextSendMessage, FlexSendMessage
 from utils import handle_approve_by_group, build_forward_message, parse_leave_command, handle_query_pending_leaves, handle_delete_request
-from firebase_db import save_request, get_user_info_by_line_id, ensure_user_registered, get_supervisor_names
+from firebase_db import save_correction, save_request, get_user_info_by_line_id, ensure_user_registered, get_supervisor_names
 import os
 import urllib
+from urllib.parse import quote_plus
 
 from datetime import datetime, timedelta
+from pytz import timezone
 user_sessions = {}  # user_id ➝ {"start_date":..., "end_date":..., "time":..., "reason":...}
 
 def parse_date_range(text):
@@ -356,6 +358,179 @@ def handle_message(event, line_bot_api):
                 TextSendMessage(text="❗請使用格式：/同意請假 請假編號 員工姓名")
             )
         return
+
+    if user_text.startswith("/補打卡"):
+        tz = timezone("Asia/Taipei")
+        now = datetime.now(tz)
+        today = now.strftime("%Y/%m/%d")
+        yesterday = (now - timedelta(days=1)).strftime("%Y/%m/%d")
+
+        user_sessions[user_id] = {"step": "correction_date"}
+
+        reply_quick_reply(
+            line_bot_api,
+            event.reply_token,
+            "📅 請選擇補打卡的日期：",
+            [
+                (f"📆 今天 ({today})", today),
+                (f"📆 昨天 ({yesterday})", yesterday),
+                ("✏️ 自訂日期", "自訂日期"),
+                ("❌ 取消補打卡", "/取消補打卡")
+            ]
+        )
+        return
+        
+
+    if session.get("step") == "correction_date":
+        if user_text == "自訂日期":
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="請輸入補打卡日期（例如：2025/07/16）：")
+            )
+            return
+
+        try:
+            correction_date = datetime.strptime(user_text.strip(), "%Y/%m/%d").date()
+        except ValueError:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 日期格式錯誤，請重新輸入。"))
+            return
+
+        # 記錄補打卡日期
+        session["correction_date"] = correction_date
+        session["step"] = "correction_type"
+        user_sessions[user_id] = session
+
+        reply_quick_reply(
+            line_bot_api,
+            event.reply_token,
+            "🕒 請選擇補打卡的類型：",
+            [
+                ("🟢 上班", "上班"),
+                ("🔴 下班", "下班"),
+                ("❌ 取消補打卡", "/取消補打卡")
+            ]
+        )
+        return
+    
+    if session.get("step") == "correction_type":
+        if user_text in ["上班", "下班"]:
+            session["correction_type"] = user_text
+            session["step"] = "correction_time"
+            user_sessions[user_id] = session
+
+            time_options = [
+                ("🕗 08:30", "08:30"),
+                ("🕛 12:00", "12:00"),
+                ("🕐 13:00", "13:00"),
+                ("🕔 17:30", "17:30"),
+                ("✏️ 自訂時間", "自訂時間"),
+                ("❌ 取消補打卡", "/取消補打卡")
+            ]
+
+            reply_quick_reply(
+                line_bot_api,
+                event.reply_token,
+                "請選擇補打卡時間或自訂輸入：",
+                time_options
+            )
+            return
+        else:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="❌ 請選擇有效的補打卡類型（上班或下班）。")
+            )
+            return
+    
+    if session.get("step") == "correction_time":
+        if user_text == "自訂時間":
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="請輸入補打卡時間（例如：08:30）：")
+            )
+            return
+
+        try:
+            datetime.strptime(user_text.strip(), "%H:%M")
+        except ValueError:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 時間格式錯誤，請重新輸入（例如：08:30）"))
+            return
+
+        session["correction_time"] = user_text.strip()
+        session["step"] = "correction_reason"
+        user_sessions[user_id] = session
+
+        reply_quick_reply(
+            line_bot_api,
+            event.reply_token,
+            "📋 請選擇補打卡原因：",
+            [
+                ("😅 忘記打卡", "忘記打卡"),
+                ("🚗 在外服事", "在外服事"),
+                ("✏️ 自訂", "自訂原因"),
+                ("❌ 取消補打卡", "/取消補打卡")
+            ]
+        )
+        return
+        
+    if session.get("step") == "correction_reason":
+        if user_text in ["忘記打卡", "在外服事"]:
+            session["correction_reason"] = user_text
+            session["step"] = "correction_complete"
+            user_sessions[user_id] = session
+        elif user_text == "自訂原因":
+            session["step"] = "custom_reason"
+            user_sessions[user_id] = session
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="請輸入補打卡原因："))
+            return
+        else:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 請選擇有效的補打卡原因。"))
+            return
+
+    # ✅ 接著處理自訂原因
+    if session.get("step") == "custom_reason":
+        session["correction_reason"] = user_text.strip()
+        session["step"] = "correction_complete"
+        user_sessions[user_id] = session
+    
+    if session.get("step") == "correction_complete":
+        tz = timezone("Asia/Taipei")
+        correction_date = session["correction_date"]  # datetime.date
+        correction_time = datetime.strptime(session["correction_time"], "%H:%M").time()
+        correction_dt = tz.localize(datetime.combine(correction_date, correction_time))
+
+        user_info = get_user_info_by_line_id(user_id)
+        if not user_info:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="❌ 無法取得使用者資訊")
+            )
+            return
+
+        correction_id = save_correction(
+            user_id=user_id,
+            user_name=user_info["name"],
+            correction_type=session["correction_type"],
+            correction_dt=correction_dt,
+            reason=session["correction_reason"],
+            supervisors=user_info.get("supervisor_ids", [])
+        )
+
+        approval_command = f"/同意補打卡 {correction_id}"
+        approval_link = f"https://line.me/R/oaMessage/{os.getenv('LINE_BOT_ID')}/?{quote_plus(approval_command)}"
+
+        approval_msg = (
+            f"弟兄您好，\n\n"
+            f"{user_info['name']} 因為「{session['correction_reason']}」，"
+            f"於 {correction_dt.strftime('%Y/%m/%d %H:%M')} 補打卡（{session['correction_type']}）。\n\n"
+            f"👉 點擊以下連結自動填入簽核指令：\n"
+            f"{approval_link}\n\n"
+            f"如不同意，請口頭告知即可，無需操作。"
+        )
+
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=approval_msg))
+        del user_sessions[user_id]
+        return
+        
     if user_text.startswith("/如何使用"):
         usage_flex = FlexSendMessage(
             alt_text="📘 使用說明",

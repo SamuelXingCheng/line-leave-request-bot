@@ -16,6 +16,20 @@ db = firestore.client()
 def get_db():
     return firestore.client()
 
+def save_correction(user_id, user_name, correction_type, correction_dt, reason, supervisors):
+    approvals = {sid: "pending" for sid in supervisors}
+    doc_ref = db.collection("corrections").add({
+        "user_id": user_id,
+        "user_name": user_name,
+        "type": correction_type,
+        "datetime": correction_dt,
+        "reason": reason,
+        "supervisors": supervisors,
+        "approvals": approvals,
+        "created_at": datetime.now(pytz.timezone("Asia/Taipei"))
+    })
+    return doc_ref[1].id
+    
 def save_request(user_id, user_name, start_date, start_time, end_date, end_time, reason, supervisor_ids, leave_type=None):
     tz = pytz.timezone("Asia/Taipei")
     start_dt = tz.localize(datetime.strptime(f"{start_date} {start_time}", "%Y-%m-%d %H:%M"))
