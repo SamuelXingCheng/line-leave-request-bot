@@ -228,15 +228,21 @@ def handle_message(event, line_bot_api):
         return
 
     if session.get("step") == "reason":
+        # 使用者選的是假別（例如「病假」）
+        session["type"] = user_text.strip()
+        session["step"] = "reason_detail"
+        user_sessions[user_id] = session
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✏️ 請輸入請假事由說明（例如：感冒不適、家中有事）："))
+        return
 
-        # ✅ 記錄事由
-        session["reason"] = user_text.strip()
+    if session.get("step") == "reason_detail":
+        session["reason"] = user_text.strip()  # 這才是實際說明
         user_info = get_user_info_by_line_id(user_id)
         if not user_info:
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 無法取得使用者資訊。"))
             return
 
-        # ⬇️ 以下原有儲存與通知邏輯
+        # 繼續原本儲存流程（多筆請假資料處理）
         messages = []
         for date in daterange(session["start_date"], session["end_date"]):
             date_str = normalize_date(date.strftime("%Y/%m/%d"))
@@ -247,14 +253,18 @@ def handle_message(event, line_bot_api):
                 start_time=session["time"][0],
                 end_date=date_str,
                 end_time=session["time"][1],
-                reason=session["reason"],
+                reason=session["reason"],  # 📝 補充說明
+                leave_type=session["type"],  # 🏷️ 假別
                 supervisor_ids=user_info.get("supervisor_ids", [])
             )
+
+            # 通知主管部分（可保留原邏輯）
             supervisor_ids = user_info.get("supervisor_ids", [])
             if supervisor_ids:
                 forward_msg, user_hint_msg = build_forward_message({
                     "name": user_info["name"],
                     "reason": session["reason"],
+                    "leave_type": session["type"],
                     "start_date": date_str,
                     "start_time": session["time"][0],
                     "end_date": date_str,
@@ -271,7 +281,6 @@ def handle_message(event, line_bot_api):
         line_bot_api.reply_message(event.reply_token, messages)
         del user_sessions[user_id]
         return
-
 
     if user_text.startswith("/查詢請假"):
         user_sessions[user_id] = {"step": "query_range"}
