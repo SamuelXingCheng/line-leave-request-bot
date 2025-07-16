@@ -172,7 +172,7 @@ def build_forward_message(data, request_id):
 
     forward_msg = (
         "弟兄您好，\n\n"
-        f"因為 {data['reason']}，從 {data['start_date']} {data['start_time']} "
+        f"因為 {data['reason']}（{data.get('leave_type', '假別未填')}），從 {data['start_date']} {data['start_time']} "
         f"到 {data['end_date']} {data['end_time']} 需要請假，煩請批准。\n\n"
         f"👉 點擊以下連結，系統將自動填入「/同意請假 （假單編號） {user_name}」，"
         "請直接送出即可完成簽核：\n"
