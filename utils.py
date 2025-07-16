@@ -249,38 +249,42 @@ def build_leave_flex_card(doc_id, name, reason, start, end, is_own=False, can_de
 def summarize_leave_days_and_hours(request_docs) -> str:
     """
     回傳各類請假類型的統計：「🌴 特休：X 小時（Y 天）」格式
-    - 類型依 reason 分類
+    - 類型依 leave_type 分類
     - 時數使用 calculate_effective_hours()
-    - 天數依據 start_at.date() ~ end_at.date()
+    - 天數依據 start_at.date()
     """
-    hours_by_reason = defaultdict(float)
-    days_by_reason = defaultdict(set)
+    from collections import defaultdict
+
+    hours_by_type = defaultdict(float)
+    days_by_type = defaultdict(set)
 
     for doc in request_docs:
         data = doc.to_dict()
-        reason = data.get("reason", "未分類")
+        leave_type = data.get("leave_type", "未分類")
         start = data.get("start_at")
         end = data.get("end_at")
 
         if not start or not end:
             continue
-        hours = calculate_effective_hours(start, end)
-        hours_by_reason[reason] += hours
-        days_by_reason[reason].add(start.date())
 
-    if not hours_by_reason:
+        hours = calculate_effective_hours(start, end)
+        hours_by_type[leave_type] += hours
+        days_by_type[leave_type].add(start.date())
+
+    if not hours_by_type:
         return "查無請假統計資料。"
 
-    # 🎨 emoji 對應表（可自行擴充）
+    # 🎨 emoji 對應表（可擴充）
     emoji_map = {
         "特休": "🌴", "事假": "📌", "病假": "🤒", "婚假": "💒",
         "喪假": "🖤", "產假": "🤰", "公假": "🏛️", "未分類": "📁"
     }
 
     lines = []
-    for reason, hours in sorted(hours_by_reason.items(), key=lambda x: -x[1]):
-        emoji = emoji_map.get(reason, "📁")
-        lines.append(f"{emoji} {reason}：{round(hours)} 小時")
+    for leave_type, hours in sorted(hours_by_type.items(), key=lambda x: -x[1]):
+        emoji = emoji_map.get(leave_type, "📁")
+        days = len(days_by_type[leave_type])
+        lines.append(f"{emoji} {leave_type}：{round(hours)} 小時")
 
     return "\n".join(lines)
 
@@ -346,7 +350,7 @@ def build_pending_leave_messages(user_id, start_date=None, end_date=None):
         bubble = build_leave_flex_card(
             doc.id,
             name="你自己",
-            reason=data.get("reason", ""),
+            reason=f"{data.get('leave_type', '未填假別')}｜{data.get('reason', '')}",
             start=format_tw_time(start),
             end=format_tw_time(end),
             is_own=True,
@@ -367,7 +371,7 @@ def build_pending_leave_messages(user_id, start_date=None, end_date=None):
         bubble = build_leave_flex_card(
             doc.id,
             name=data.get("user_name", "未知"),
-            reason=data.get("reason", ""),
+            reason=f"{data.get('leave_type', '未填假別')}｜{data.get('reason', '')}",
             start=format_tw_time(data.get("start_at")),
             end=format_tw_time(data.get("end_at"))
         )
