@@ -1,7 +1,7 @@
 # utils.py
-from datetime import datetime
+from datetime import datetime, timedelta
 from firebase_db import get_db
-from linebot.models import TextSendMessage, FlexSendMessage
+from linebot.models import TextSendMessage, QuickReply, QuickReplyButton, MessageAction
 from firebase_admin import firestore
 
 # ✅ 支援整天請假與單日區間請假
@@ -28,6 +28,49 @@ def normalize_time(time_str):
         return datetime.strptime(time_str, "%H:%M").strftime("%H:%M")
     except:
         return None
+
+def daterange(start_date, end_date):
+    """
+    傳入 datetime.date 格式的 start_date 和 end_date，
+    回傳從 start_date 到 end_date（含）之間每天的日期生成器。
+    """
+    for n in range((end_date - start_date).days + 1):
+        yield start_date + timedelta(n)
+
+def map_time_label(label):
+    """
+    根據請假時段標籤轉換為實際時間範圍
+    回傳格式為字串 tuple，例如 ('09:00', '18:00')
+    """
+    if label == "整天":
+        return ("08:30", "17:30")
+    elif label == "上午":
+        return ("08:30", "12:00")
+    elif label == "下午":
+        return ("13:00", "17:30")
+    else:
+        return ("08:30", "17:30")  # 預設為整天
+
+
+def parse_date_range(text):
+    try:
+        if "-" in text:
+            start_str, end_str = text.split("-")
+            start = datetime.strptime(start_str.strip(), "%Y/%m/%d").date()
+            end = datetime.strptime(end_str.strip(), "%Y/%m/%d").date()
+        else:
+            start = end = datetime.strptime(text.strip(), "%Y/%m/%d").date()
+        return start, end
+    except Exception:
+        return None, None
+
+def reply_quick_reply(line_bot_api, reply_token, text, options):
+    items = [
+        QuickReplyButton(action=MessageAction(label=label, text=value))
+        for label, value in options
+    ]
+    message = TextSendMessage(text=text, quick_reply=QuickReply(items=items))
+    line_bot_api.reply_message(reply_token, message)
 
 def parse_leave_command(text):
     text = text.strip().replace("/請假", "").strip()
