@@ -4,6 +4,7 @@ from linebot.models import TextSendMessage
 from session_manager import UserSession
 from firebase_db import get_user_info_by_line_id, save_request
 from utils import reply_quick_reply, parse_date_range, map_time_label, daterange, normalize_date, build_forward_message
+import uuid
 
 class LeaveFlowHandler:
     def __init__(self, user_id, line_bot_api, event, session_store):
@@ -137,7 +138,8 @@ class LeaveFlowHandler:
         user_name = user_info["name"]
 
         messages = []
-
+        requests_data = []
+        
         for date in daterange(start_date, end_date):
             date_str = normalize_date(date.strftime("%Y/%m/%d"))
 
@@ -153,24 +155,23 @@ class LeaveFlowHandler:
                 supervisor_ids=supervisor_ids,
                 group_id=request_group_id  # ✅ 傳入共用的 group_id
             )
-
-            if supervisor_ids:
-                forward_msg, user_hint_msg = build_forward_message({
-                    "name": user_name,
-                    "reason": reason,
-                    "leave_type": leave_type,
-                    "start_date": date_str,
-                    "start_time": start_time,
-                    "end_date": date_str,
-                    "end_time": end_time,
-                    "supervisor_ids": supervisor_ids
-                }, request_id=request_group_id)
-                messages.append(TextSendMessage(text=forward_msg))
-                if user_hint_msg:
-                    messages.append(TextSendMessage(text=user_hint_msg))
-            else:
-                messages.append(TextSendMessage(
-                    text="⚠️ 你尚未設定主管，請聯絡管理員設定 supervisor_ids。請假資料已儲存，但無法簽核。"))
+            requests_data.append({
+                "start_date": date_str,
+                "start_time": start_time,
+                "end_time": end_time,
+                "leave_type": leave_type,
+                "reason": reason,
+                "name": user_name,
+                "supervisor_ids": supervisor_ids
+            })
+        if supervisor_ids:
+            forward_msg, user_hint_msg = build_forward_message(requests_data, request_group_id)
+            messages.append(TextSendMessage(text=forward_msg))
+            if user_hint_msg:
+                messages.append(TextSendMessage(text=user_hint_msg))
+        else:
+            messages.append(TextSendMessage(
+                text="⚠️ 你尚未設定主管，請聯絡管理員設定 supervisor_ids。請假資料已儲存，但無法簽核。"))
 
         self.line_bot_api.reply_message(self.event.reply_token, messages)
         self.session.clear()
