@@ -2,7 +2,7 @@
 
 from linebot.models import TextSendMessage
 from firebase_db import ensure_user_registered
-from user_session import UserSession
+from session_manager import UserSession
 
 class RegisterHandler:
     def __init__(self, user_id, user_text, event, line_bot_api, user_sessions):
