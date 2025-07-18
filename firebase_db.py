@@ -62,13 +62,14 @@ def save_request(user_id, user_name, start_date, start_time, end_date, end_time,
         doc_ref = db.collection("requests").add({
             "user_id": user_id,
             "user_name": user_name,
-            "start_at": request_start,         # ✅ 修正為單日請假起
-            "end_at": request_end,             # ✅ 修正為單日請假訖
+            "start_at": request_start,
+            "end_at": request_end,
             "reason": reason,
             "leave_type": leave_type,
             "status": "pending",
             "supervisors": supervisor_ids,
             "approvals": approvals,
+            "request_group_id": group_id,
             "created_at": datetime.now(tz)
         })
 
