@@ -124,31 +124,45 @@ class LeaveFlowHandler:
             self.line_bot_api.reply_message(self.event.reply_token, TextSendMessage(text="❌ 無法取得使用者資訊。"))
             return True
 
+        # ✅ 產生共用的 group_id
+        request_group_id = str(uuid.uuid4())
+
+        # ✅ 把 session 資料暫存起來（可讀性更好）
+        start_date = self.session.get("start_date")
+        end_date = self.session.get("end_date")
+        start_time, end_time = self.session.get("time")
+        reason = self.session.get("reason")
+        leave_type = self.session.get("type")
+        supervisor_ids = user_info.get("supervisor_ids", [])
+        user_name = user_info["name"]
+
         messages = []
-        for date in daterange(self.session.get("start_date"), self.session.get("end_date")):
+
+        for date in daterange(start_date, end_date):
             date_str = normalize_date(date.strftime("%Y/%m/%d"))
-            request_group_id = save_request(
+
+            save_request(
                 user_id=self.user_id,
-                user_name=user_info["name"],
+                user_name=user_name,
                 start_date=date_str,
-                start_time=self.session.get("time")[0],
+                start_time=start_time,
                 end_date=date_str,
-                end_time=self.session.get("time")[1],
-                reason=self.session.get("reason"),
-                leave_type=self.session.get("type"),
-                supervisor_ids=user_info.get("supervisor_ids", [])
+                end_time=end_time,
+                reason=reason,
+                leave_type=leave_type,
+                supervisor_ids=supervisor_ids,
+                group_id=request_group_id  # ✅ 傳入共用的 group_id
             )
 
-            supervisor_ids = user_info.get("supervisor_ids", [])
             if supervisor_ids:
                 forward_msg, user_hint_msg = build_forward_message({
-                    "name": user_info["name"],
-                    "reason": self.session.get("reason"),
-                    "leave_type": self.session.get("type"),
+                    "name": user_name,
+                    "reason": reason,
+                    "leave_type": leave_type,
                     "start_date": date_str,
-                    "start_time": self.session.get("time")[0],
+                    "start_time": start_time,
                     "end_date": date_str,
-                    "end_time": self.session.get("time")[1],
+                    "end_time": end_time,
                     "supervisor_ids": supervisor_ids
                 }, request_id=request_group_id)
                 messages.append(TextSendMessage(text=forward_msg))
