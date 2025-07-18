@@ -194,37 +194,43 @@ def parse_leave_command(text):
 
 
 # ✅ 將請假資料轉為可供轉發的 LINE 訊息
-def build_forward_message(data, request_id):
+def build_forward_message(requests: list, request_id: str):
     """
-    根據請假資料產生要轉傳給主管的訊息。
-    參數 data 必須包含：
-        - name：請假人姓名
-        - reason：請假事由
-        - start_date, start_time, end_date, end_time：請假時間
-        - supervisor_ids：主管 LINE ID list（可選）
+    將多日請假資料統整為一則可供轉發的 LINE 訊息。
+    requests: list，每個元素為 dict，包含：
+        - start_date, start_time, end_date, end_time, leave_type, reason, name, supervisor_ids
 
-    傳回 tuple：(forward_msg, user_hint_msg)
+    傳回 tuple: (forward_msg, user_hint_msg)
     """
-    user_name = data["name"]
-    supervisor_ids = data.get("supervisor_ids", [])
+    if not requests:
+        return ("⚠️ 請假資料為空，無法建立轉發訊息。", None)
+
+    user_name = requests[0]["name"]
+    reason = requests[0].get("reason", "未填寫")
+    leave_type = requests[0].get("leave_type", "假別未填")
+    supervisor_ids = requests[0].get("supervisor_ids", [])
+
     bot_id = os.getenv("LINE_BOT_ID")  # 例如 @123xyz
-
     approval_command = f"/同意請假 {request_id} {user_name}"
     encoded_query = urllib.parse.quote(approval_command)
     approval_link = f"line://oaMessage/@{bot_id}/?{encoded_query}"
 
+    # ✅ 整理多日時間清單
+    date_lines = []
+    for req in requests:
+        line = f"📅 {req['start_date']} {req['start_time']} ~ {req['end_time']}"
+        date_lines.append(line)
+
     forward_msg = (
-        "弟兄您好，\n\n"
-        f"因為 {data['reason']}（{data.get('leave_type', '假別未填')}），從 {data['start_date']} {data['start_time']} "
-        f"到 {data['end_date']} {data['end_time']} 需要請假，煩請批准。\n\n"
-        f"👉 點擊以下連結，系統將自動填入「/同意請假 （假單編號） {user_name}」，"
-        "請直接送出即可完成簽核：\n"
+        f"弟兄您好，\n\n因為 {reason}（{leave_type}），以下時間需要請假：\n" +
+        "\n".join(date_lines) +
+        "\n\n👉 點擊以下連結，系統將自動填入「/同意請假」指令，請直接送出即可完成簽核：\n"
         f"{approval_link}"
         "\n\n若不同意，請口頭告知請假者即可，無需操作此連結。"
     )
 
     if supervisor_ids:
-        from firebase_db import get_supervisor_names  # 避免循環 import 可放在這行
+        from firebase_db import get_supervisor_names
         supervisor_names = get_supervisor_names(supervisor_ids)
         user_hint_msg = (
             "📌 請記得轉傳上方訊息給以下主管簽核：\n" +
