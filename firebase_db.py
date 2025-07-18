@@ -30,36 +30,33 @@ def save_correction(user_id, user_name, correction_type, correction_dt, reason, 
     })
     return doc_ref[1].id
     
-def save_request(user_id, user_name, start_date, start_time, end_date, end_time, reason, supervisor_ids, leave_type=None):
+def save_request(user_id, user_name, start_date, start_time, end_date, end_time,
+                 reason, supervisor_ids, leave_type=None, group_id=None):
     tz = pytz.timezone("Asia/Taipei")
     start_dt = tz.localize(datetime.strptime(f"{start_date} {start_time}", "%Y-%m-%d %H:%M"))
     end_dt = tz.localize(datetime.strptime(f"{end_date} {end_time}", "%Y-%m-%d %H:%M"))
 
-    group_id = str(uuid.uuid4())  # 請假群組 ID
-    current_date = start_dt
+    # ✅ 若外部沒傳入，才自動產生 group_id
+    if group_id is None:
+        group_id = str(uuid.uuid4())
 
-    # 預設上下班時間
+    current_date = start_dt
     default_start = time(8, 30)
     default_end = time(17, 30)
-
-    approvals = {sid: "pending" for sid in supervisor_ids}  # ✅ 加上 approvals 定義
+    approvals = {sid: "pending" for sid in supervisor_ids}
 
     while current_date.date() <= end_dt.date():
         date_only = current_date.date()
 
-        # 預設整天請假時段
         request_start = tz.localize(datetime.combine(date_only, default_start))
         request_end = tz.localize(datetime.combine(date_only, default_end))
 
-        # 第一筆 → 使用真實 start_dt
         if date_only == start_dt.date():
             request_start = start_dt
-
-        # 最後一筆 → 使用真實 end_dt
         if date_only == end_dt.date():
             request_end = end_dt
 
-        doc_ref = db.collection("requests").add({
+        db.collection("requests").add({
             "user_id": user_id,
             "user_name": user_name,
             "start_at": request_start,
