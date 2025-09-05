@@ -1,5 +1,5 @@
 import os
-import logging
+import logging, json
 from dotenv import load_dotenv
 # 載入 .env 環境變數
 load_dotenv()
@@ -7,7 +7,7 @@ load_dotenv()
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookParser
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage
+from linebot.models import MessageEvent, TextMessage, LocationMessage
 from handlers import handle_message
 
 # 初始化 Flask 應用
@@ -29,6 +29,13 @@ def callback():
     signature = request.headers.get('X-Line-Signature')
     body = request.get_data(as_text=True)
 
+    try:
+        json_body = request.get_json()
+        logging.info(f"[Webhook Raw JSON] {json.dumps(json_body, ensure_ascii=False, indent=2)}")
+    except Exception as e:
+        logging.error(f"[Webhook Raw JSON] 解析失敗: {e}")
+
+
     if not signature:
         logging.error("❌ 缺少 X-Line-Signature 標頭")
         abort(400)
@@ -40,8 +47,7 @@ def callback():
         abort(400)
 
     for event in events:
-        if isinstance(event, MessageEvent) and isinstance(event.message, TextMessage):
-            logging.info(f"✅ 收到使用者訊息：{event.message.text}")
+        if isinstance(event, MessageEvent) and isinstance(event.message, (TextMessage, LocationMessage)):
             handle_message(event, line_bot_api)
 
     return 'OK'
