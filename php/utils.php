@@ -2,6 +2,30 @@
 // utils.php
 require_once __DIR__ . '/Db.php';  // ✅ 注意大小寫，與你的 Database class 一致
 
+function replyMessage($replyToken, $messageObject) {
+    $url = 'https://api.line.me/v2/bot/message/reply';
+    $headers = [
+        'Content-Type: application/json',
+        "Authorization: " . "Bearer " . getenv("LINE_CHANNEL_ACCESS_TOKEN")
+    ];
+
+    $data = [
+        'replyToken' => $replyToken,
+        'messages'   => [$messageObject]
+    ];
+
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+    $result = curl_exec($ch);
+    curl_close($ch);
+
+    error_log("📡 LINE API response: " . $result);
+}
+
+
 // ---------- 已有的 ----------
 function replyTextMessage($replyToken, $text) {
     $url = "https://api.line.me/v2/bot/message/reply";
