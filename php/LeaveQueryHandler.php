@@ -128,6 +128,20 @@ class LeaveQueryHandler {
         ];
 
         foreach ($rows as $row) {
+            // 狀態文字 & 顏色對應
+            $statusMap = [
+                "pending"  => ["尚未核准", "#999999"], // 灰色
+                "approved" => ["已通過", "#228B22"],   // 綠色
+                "rejected" => ["已駁回", "#CC0000"]    // 紅色
+            ];
+        
+            if (isset($statusMap[$row['status']])) {
+                [$statusText, $statusColor] = $statusMap[$row['status']];
+            } else {
+                $statusText  = $row['status'];
+                $statusColor = "#555555"; // 預設灰
+            }
+        
             $item = [
                 "type" => "box",
                 "layout" => "vertical",
@@ -158,9 +172,9 @@ class LeaveQueryHandler {
                             ],
                             [
                                 "type" => "text",
-                                "text" => "狀態: " . $row['status'],
+                                "text" => "狀態: " . $statusText,
                                 "size" => "sm",
-                                "color" => "#888888",
+                                "color" => $statusColor, // ✅ 顏色依狀態變化
                                 "flex" => 3
                             ]
                         ]
@@ -169,7 +183,7 @@ class LeaveQueryHandler {
                 ]
             ];
             $contents["body"]["contents"][] = $item;
-        }
+        }          
 
         $flexMessage = [
             "type" => "flex",
