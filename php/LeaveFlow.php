@@ -229,15 +229,18 @@ class LeaveFlow {
             "name"           => $userName,
             "supervisor_ids" => $supervisors
         ]];
+        
+        $messages = buildForwardMessage($requests, $requestGroupId);
+        replyMessage($this->event['replyToken'], $messages);
 
         // 6. 產生訊息（統一由 utils 控管格式）
-        list($forwardMsg, $userHintMsg) = buildForwardMessage($requests, $requestGroupId);
+        // list($forwardMsg, $userHintMsg) = buildForwardMessage($requests, $requestGroupId);
 
-        // 7. 回覆使用者
-        replyTextMessage($this->event['replyToken'], $forwardMsg);
-        if ($userHintMsg) {
-            replyTextMessage($this->event['replyToken'], $userHintMsg);
-        }
+        // // 7. 回覆使用者
+        // replyTextMessage($this->event['replyToken'], $forwardMsg);
+        // if ($userHintMsg) {
+        //     replyTextMessage($this->event['replyToken'], $userHintMsg);
+        // }
 
         // 8. 清理 session
         $this->session->clear();

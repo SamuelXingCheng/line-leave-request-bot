@@ -2,28 +2,34 @@
 // utils.php
 require_once __DIR__ . '/Db.php';  // ✅ 注意大小寫，與你的 Database class 一致
 
-function replyMessage($replyToken, $messageObject) {
+function replyMessage($replyToken, $messageObjects) {
     $url = 'https://api.line.me/v2/bot/message/reply';
     $headers = [
         'Content-Type: application/json',
         "Authorization: " . "Bearer " . getenv("LINE_CHANNEL_ACCESS_TOKEN")
     ];
 
+    // 確保是陣列
+    if (isset($messageObjects['type'])) {
+        $messageObjects = [$messageObjects];
+    }
+
     $data = [
         'replyToken' => $replyToken,
-        'messages'   => [$messageObject]
+        'messages'   => $messageObjects
     ];
 
     $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data, JSON_UNESCAPED_UNICODE));
     $result = curl_exec($ch);
     curl_close($ch);
 
-    error_log("📡 LINE API response: " . $result);
+    error_log("📤 ReplyMessage result: " . $result);
 }
+
 
 
 // ---------- 已有的 ----------
@@ -106,20 +112,22 @@ function getSupervisorNames(array $ids): array {
  */
 function buildForwardMessage(array $requests, string $requestGroupId): array {
     if (empty($requests)) {
-        return ["⚠️ 請假資料為空，無法建立轉發訊息。", null];
+        return [[
+            "type" => "text",
+            "text" => "⚠️ 請假資料為空，無法建立轉發訊息。"
+        ]];
     }
 
-    $firstReq = $requests[0];
-    $userName = $firstReq["name"];
-    $reason = $firstReq["reason"] ?? "未填寫";
-    $leaveType = $firstReq["leave_type"] ?? "假別未填";
+    $firstReq      = $requests[0];
+    $userName      = $firstReq["name"];
+    $reason        = $firstReq["reason"] ?? "未填寫";
+    $leaveType     = $firstReq["leave_type"] ?? "假別未填";
     $supervisorIds = $firstReq["supervisor_ids"] ?? [];
 
     $botId = getenv("LINE_BOT_ID"); // 例如 @123xyz
-    // ✅ 改成只帶 group id
     $approvalCommand = "/同意請假 {$requestGroupId}";
-    $encodedQuery = rawurlencode($approvalCommand);
-    $approvalLink = "line://oaMessage/@" . $botId . "/?" . $encodedQuery;
+    $encodedQuery    = rawurlencode($approvalCommand);
+    $approvalLink    = "line://oaMessage/@" . $botId . "/?" . $encodedQuery;
 
     // 整理多日清單
     $dateLines = [];
@@ -129,26 +137,38 @@ function buildForwardMessage(array $requests, string $requestGroupId): array {
     }
     $dateLinesStr = implode("\n", $dateLines);
 
-    $forwardMsg =
-        "👤 員工：{$userName}\n" .
-        "📋 假別：{$leaveType}\n" .
-        "📝 原因：{$reason}\n\n" .
-        "以下時間需要請假：\n" .
-        $dateLinesStr .
-        "\n\n👉 點擊以下連結，系統將自動填入「/同意請假」指令，請直接送出即可完成簽核：\n" .
-        $approvalLink .
-        "\n\n若不同意，請口頭告知請假者即可，無需操作此連結。";
+    // 主訊息
+    $forwardMsg = [
+        "type" => "text",
+        "text" =>
+            "👤 員工：{$userName}\n" .
+            "📋 假別：{$leaveType}\n" .
+            "📝 原因：{$reason}\n\n" .
+            "以下時間需要請假：\n" .
+            $dateLinesStr .
+            "\n\n👉 點擊以下連結，系統將自動填入「/同意請假」指令，請直接送出即可完成簽核：\n" .
+            $approvalLink .
+            "\n\n若不同意，請口頭告知請假者即可，無需操作此連結。"
+    ];
 
-    $userHintMsg = null;
+    $messages = [$forwardMsg];
+
+    // 提示訊息（主管清單）
     if (!empty($supervisorIds)) {
-        $supervisorNames = getSupervisorNames($supervisorIds);
+        $supervisorNames = getSupervisorNames($supervisorIds); // ← 需要你實作
         $lines = [];
         foreach ($supervisorNames as $name) {
             $lines[] = "- " . $name;
         }
-        $userHintMsg = "📌 請記得轉傳上方訊息給以下主管簽核：\n" . implode("\n", $lines);
+
+        $hintMsg = [
+            "type" => "text",
+            "text" => "📌 請記得轉傳上方訊息給以下主管簽核：\n" . implode("\n", $lines)
+        ];
+
+        $messages[] = $hintMsg;
     }
 
-    return [$forwardMsg, $userHintMsg];
+    return $messages;
 }
 
