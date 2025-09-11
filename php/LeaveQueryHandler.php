@@ -69,8 +69,11 @@ class LeaveQueryHandler {
                 return true;
             }
 
+            $this->session->set("last_query_start", $startDate->format("Y-m-d"));
+            $this->session->set("last_query_end", $endDate->format("Y-m-d"));
+
             $this->queryAndReply($replyToken, $startDate, $endDate);
-            $this->session->clear();
+            $this->session->setStep(null);
             return true;
         }
 
@@ -93,9 +96,37 @@ class LeaveQueryHandler {
         return false;
     }
 
+    // ✅ 新增給 DeleteHandler 用的方法
+    public function handleWithDateRange($replyToken, $startDate, $endDate, $prefixMessage = null) {
+        $stmt = $this->db->prepare("
+            SELECT request_group_id, start_at, end_at, leave_type, status
+            FROM leave_requests
+            WHERE user_id = ? AND start_at >= ? AND end_at <= ?
+            ORDER BY start_at DESC
+        ");
+        $stmt->execute([$this->lineId, $startDate->format("Y-m-d 00:00:00"), $endDate->format("Y-m-d 23:59:59")]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (!$rows) {
+            replyTextMessage($replyToken, "📭 此區間內沒有請假紀錄");
+            return;
+        }
+
+        $flexMessage = $this->buildFlexMessage($rows);
+
+        if ($prefixMessage) {
+            replyMessage($replyToken, [
+                ["type" => "text", "text" => $prefixMessage],
+                $flexMessage
+            ]);
+        } else {
+            replyMessage($replyToken, $flexMessage);
+        }
+    }
+
     private function queryAndReply($replyToken, $startDate, $endDate) {
         $stmt = $this->db->prepare("
-            SELECT id, start_at, end_at, leave_type, status
+            SELECT request_group_id, start_at, end_at, leave_type, status
             FROM leave_requests
             WHERE user_id = ? AND start_at >= ? AND end_at <= ?
             ORDER BY start_at DESC
@@ -108,7 +139,12 @@ class LeaveQueryHandler {
             return;
         }
 
-        // 建立 Flex Message
+        $flexMessage = $this->buildFlexMessage($rows);
+        replyMessage($replyToken, $flexMessage);
+    }
+
+    // ✅ 抽出共用的訊息組裝
+    private function buildFlexMessage($rows) {
         $contents = [
             "type" => "bubble",
             "body" => [
@@ -128,20 +164,13 @@ class LeaveQueryHandler {
         ];
 
         foreach ($rows as $row) {
-            // 狀態文字 & 顏色對應
             $statusMap = [
-                "pending"  => ["尚未核准", "#999999"], // 灰色
-                "approved" => ["已通過", "#228B22"],   // 綠色
-                "rejected" => ["已駁回", "#CC0000"]    // 紅色
+                "pending"  => ["尚未核准", "#999999"],
+                "approved" => ["已通過", "#228B22"],
+                "rejected" => ["已駁回", "#CC0000"]
             ];
-        
-            if (isset($statusMap[$row['status']])) {
-                [$statusText, $statusColor] = $statusMap[$row['status']];
-            } else {
-                $statusText  = $row['status'];
-                $statusColor = "#555555"; // 預設灰
-            }
-        
+            [$statusText, $statusColor] = $statusMap[$row['status']] ?? [$row['status'], "#555555"];
+
             $item = [
                 "type" => "box",
                 "layout" => "vertical",
@@ -174,23 +203,36 @@ class LeaveQueryHandler {
                                 "type" => "text",
                                 "text" => "狀態: " . $statusText,
                                 "size" => "sm",
-                                "color" => $statusColor, // ✅ 顏色依狀態變化
+                                "color" => $statusColor,
                                 "flex" => 3
                             ]
                         ]
-                    ],
-                    ["type" => "separator", "margin" => "md"]
+                    ]
                 ]
             ];
-            $contents["body"]["contents"][] = $item;
-        }          
 
-        $flexMessage = [
+            if ($row['status'] === "pending") {
+                $item["contents"][] = [
+                    "type" => "button",
+                    "style" => "secondary",
+                    "height" => "sm",
+                    "action" => [
+                        "type" => "message",
+                        "label" => "刪除",
+                        "text" => "/刪除請假 " . $row['request_group_id']
+                    ],
+                    "margin" => "md"
+                ];
+            }
+
+            $item["contents"][] = ["type" => "separator", "margin" => "md"];
+            $contents["body"]["contents"][] = $item;
+        }
+
+        return [
             "type" => "flex",
             "altText" => "📋 請假紀錄",
             "contents" => $contents
         ];
-
-        replyMessage($replyToken, $flexMessage);
     }
 }

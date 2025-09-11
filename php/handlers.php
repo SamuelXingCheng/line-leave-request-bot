@@ -4,6 +4,7 @@ require_once __DIR__ . '/CancelHandler.php';
 require_once __DIR__ . '/LeaveFlow.php';
 require_once __DIR__ . '/LeaveQueryHandler.php';
 require_once __DIR__ . '/ApprovalHandler.php';
+require_once __DIR__ . '/DeleteHandler.php';
 
 function handleMessage($event, $db) {
     $replyToken = $event['replyToken'];
@@ -26,6 +27,14 @@ function handleMessage($event, $db) {
         $handler = new ApprovalHandler($userId, $text);
         $handler->handle($replyToken);
         return;
+    }
+
+    // ---------- 刪除請假 ----------
+    if (strpos($text, "/刪除請假") === 0) {
+        $handler = new DeleteHandler($userId, $event);
+        if ($handler->handle()) {
+            return;
+        }
     }
 
     // ---------- 取消流程 ----------
