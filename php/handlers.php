@@ -3,6 +3,7 @@
 require_once __DIR__ . '/CancelHandler.php';
 require_once __DIR__ . '/LeaveFlow.php';
 require_once __DIR__ . '/LeaveQueryHandler.php';
+require_once __DIR__ . '/ApprovalHandler.php';
 
 function handleMessage($event, $db) {
     $replyToken = $event['replyToken'];
@@ -16,6 +17,13 @@ function handleMessage($event, $db) {
         preg_match('/\d{4}\/\d{2}\/\d{2}-\d{4}\/\d{2}\/\d{2}/', $text)) {
 
         $handler = new LeaveQueryHandler($userId, $text);
+        $handler->handle($replyToken);
+        return;
+    }
+
+    // 簽核指令
+    if (strpos($text, "/同意請假") === 0 || strpos($text, "/同意補打卡") === 0) {
+        $handler = new ApprovalHandler($userId, $text);
         $handler->handle($replyToken);
         return;
     }

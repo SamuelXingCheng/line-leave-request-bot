@@ -182,11 +182,11 @@ class LeaveFlow {
         $stmt->execute([$this->lineId]);
         $userName = $stmt->fetchColumn() ?: "未知姓名";
 
-        // 2. 查主管
+        // 2. 查主管（從 user_supervisors 撈）
         $stmt = $this->db->prepare("SELECT supervisor_id FROM user_supervisors WHERE user_id = ?");
         $stmt->execute([$this->lineId]);
         $supervisors = $stmt->fetchAll(PDO::FETCH_COLUMN);
-        
+
         $requestGroupId = $this->generateUuid();
 
         // 3. 存請假紀錄
@@ -207,11 +207,11 @@ class LeaveFlow {
         ]);
         $leaveId = $this->db->lastInsertId();
 
-        // 4. 存主管關聯
+        // 4. 初始化主管簽核 → 直接寫到 leave_approvals
         foreach ($supervisors as $supId) {
             $stmt = $this->db->prepare("
-                INSERT INTO leave_request_supervisors (request_id, supervisor_id)
-                VALUES (?, ?)
+                INSERT INTO leave_approvals (request_id, supervisor_id, status)
+                VALUES (?, ?, 'pending')
             ");
             $stmt->execute([$leaveId, $supId]);
         }
@@ -229,23 +229,15 @@ class LeaveFlow {
             "name"           => $userName,
             "supervisor_ids" => $supervisors
         ]];
-        
+
         $messages = buildForwardMessage($requests, $requestGroupId);
         replyMessage($this->event['replyToken'], $messages);
 
-        // 6. 產生訊息（統一由 utils 控管格式）
-        // list($forwardMsg, $userHintMsg) = buildForwardMessage($requests, $requestGroupId);
-
-        // // 7. 回覆使用者
-        // replyTextMessage($this->event['replyToken'], $forwardMsg);
-        // if ($userHintMsg) {
-        //     replyTextMessage($this->event['replyToken'], $userHintMsg);
-        // }
-
-        // 8. 清理 session
+        // 6. 清理 session
         $this->session->clear();
         return true;
     }
+
 
     /** 假別 Quick Reply */
     private function getLeaveTypes() {
