@@ -11,6 +11,33 @@ function handleMessage($event, $db) {
     $userId     = $event['source']['userId'];
     $text       = $event['message']['text'];
 
+    // ---------- 出勤打卡 ----------
+    if ($text === "/打卡") {
+        $liffId  = "2008053226-xQwNABDP"; // 你的 LIFF ID
+        $liffUrl = "line://app/" . $liffId;
+    
+        $templateMessage = [
+            "type" => "template",
+            "altText" => "出勤打卡",
+            "template" => [
+                "type" => "buttons",
+                "title" => "台中市召會行政人員出勤系統",
+                "text"  => "點下方按鈕進入打卡頁面",
+                "actions" => [
+                    [
+                        "type" => "uri",
+                        "label" => "📍上下班打卡",
+                        "uri"  => $liffUrl
+                    ]
+                ]
+            ]
+        ];
+    
+        replyMessage($replyToken, $templateMessage);
+        error_log("✅ Sent 打卡 LIFF button to userId=" . $userId);
+        return;
+    }    
+
     // ---------- 查詢請假 ----------
     if (strpos($text, "/查詢請假") === 0 || $text === "查今天" || 
         $text === "查上個月" || $text === "查本月" || $text === "查今年" || 
@@ -22,7 +49,7 @@ function handleMessage($event, $db) {
         return;
     }
 
-    // 簽核指令
+    // ---------- 簽核指令 ----------
     if (strpos($text, "/同意請假") === 0 || strpos($text, "/同意補打卡") === 0) {
         $handler = new ApprovalHandler($userId, $text);
         $handler->handle($replyToken);
@@ -56,5 +83,5 @@ function handleMessage($event, $db) {
     }
 
     // ---------- 預設回覆 ----------
-    replyTextMessage($replyToken, "❓ 未知指令，請輸入 /請假 或 /取消請假");
+    replyTextMessage($replyToken, "❓ 未知指令，請輸入 /請假 或 /打卡");
 }
