@@ -5,6 +5,7 @@ require_once __DIR__ . '/LeaveFlow.php';
 require_once __DIR__ . '/LeaveQueryHandler.php';
 require_once __DIR__ . '/ApprovalHandler.php';
 require_once __DIR__ . '/DeleteHandler.php';
+require_once __DIR__ . '/RegisterHandler.php';
 
 function handleMessage($event, $db) {
     $replyToken = $event['replyToken'];
@@ -37,6 +38,12 @@ function handleMessage($event, $db) {
         error_log("✅ Sent 打卡 LIFF button to userId=" . $userId);
         return;
     }    
+
+    // ---------- 註冊 ----------
+    $registerHandler = new RegisterHandler($userId, $text, $replyToken);
+    if ($registerHandler->handle()) {
+        return;
+    }
 
     // ---------- 查詢請假 ----------
     if (strpos($text, "/查詢請假") === 0 || $text === "查今天" || 
