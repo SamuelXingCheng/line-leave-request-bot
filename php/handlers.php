@@ -6,6 +6,7 @@ require_once __DIR__ . '/LeaveQueryHandler.php';
 require_once __DIR__ . '/ApprovalHandler.php';
 require_once __DIR__ . '/DeleteHandler.php';
 require_once __DIR__ . '/RegisterHandler.php';
+require_once __DIR__ . '/AttendanceApprovalHandler.php';
 
 function handleMessage($event, $db) {
     $replyToken = $event['replyToken'];
@@ -42,6 +43,11 @@ function handleMessage($event, $db) {
     // ---------- 註冊 ----------
     $registerHandler = new RegisterHandler($userId, $text, $replyToken);
     if ($registerHandler->handle()) {
+        return;
+    }
+
+    $attendanceApprovalHandler = new AttendanceApprovalHandler($userId, $text);
+    if ($attendanceApprovalHandler->handle($replyToken)) {
         return;
     }
 
