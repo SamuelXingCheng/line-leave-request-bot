@@ -6,7 +6,6 @@ header("Access-Control-Allow-Origin: https://www.citc.org.tw");
 header("Access-Control-Allow-Methods: POST, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type");
 
-// 如果是預檢請求 (OPTIONS)，直接回應 200
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
     exit;
@@ -18,9 +17,9 @@ require_once __DIR__ . '/Db.php';
 header('Content-Type: application/json; charset=utf-8');
 
 // 公司座標 & 半徑
-const COMPANY_LAT = 24.13384;
-const COMPANY_LNG = 120.68162;
-const ALLOWED_RADIUS = 200; // 公尺
+define("COMPANY_LAT", (float) getenv("COMPANY_LAT"));
+define("COMPANY_LNG", (float) getenv("COMPANY_LNG"));
+define("ALLOWED_RADIUS", (float) getenv("ALLOWED_RADIUS"));
 
 // 讀取 LIFF 傳來的 JSON
 $data = json_decode(file_get_contents("php://input"), true);
@@ -34,6 +33,7 @@ $userId = $data['userId'] ?? null;
 $mode   = $data['mode'] ?? null;   // 上班 or 下班
 $lat    = isset($data['latitude']) ? floatval($data['latitude']) : null;
 $lng    = isset($data['longitude']) ? floatval($data['longitude']) : null;
+$reason = $data['reason'] ?? null;
 
 if (!$userId || !$mode || !$lat || !$lng) {
     http_response_code(400);
@@ -41,40 +41,92 @@ if (!$userId || !$mode || !$lat || !$lng) {
     exit;
 }
 
+// DB 連線
+$db = Database::getConnection();
+
+// 產生 UUID（要先用）
+$uuid = $db->query("SELECT UUID()")->fetchColumn();
+
+// 撈出員工姓名
+$stmt = $db->prepare("SELECT name FROM users WHERE user_id = ?");
+$stmt->execute([$userId]);
+$row = $stmt->fetch();
+$userName = $row ? $row['name'] : "未知使用者";
+
 // 計算距離
 $distance = calculateDistance($lat, $lng);
 $now = date("Y-m-d H:i:s");
 
+$supervisors = [];
+$approvalUrl = null;
+
 if ($distance <= ALLOWED_RADIUS) {
-    $message = "✅ {$mode}打卡成功！時間：{$now}";
     $status = "success";
+    $approval = "normal";
+    $reason = null; 
+    $message = "✅ {$mode}打卡成功！時間：{$now}";
 } else {
-    $message = "⚠️ 不在公司範圍內（距離 " . intval($distance) . " 公尺），請確認位置或事後補充說明。";
     $status = "fail";
+    $approval = "pending";
+
+    // 查詢該員工的主管名單
+    $stmt = $db->prepare("
+        SELECT u.user_id, u.name 
+        FROM user_supervisors us
+        JOIN users u ON us.supervisor_id = u.user_id
+        WHERE us.user_id = ?
+    ");
+    $stmt->execute([$userId]);
+    $supervisors = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // 主管審核連結（改成官方帳號 URL scheme）
+    $BOT_BASIC_ID = getenv("LINE_BOT_ID");
+    $approvalCommand = "/審核打卡 {$uuid}";
+    $approvalUrl = "https://line.me/R/oaMessage/@{$BOT_BASIC_ID}/?" . rawurlencode($approvalCommand);
+
+    // 提示訊息（只給框1用）
+    $message = "⚠️ 不在公司範圍內（距離 " . intval($distance) . " 公尺），打卡已送出並記錄為【待審核】。";
 }
 
 // 存進資料庫
 try {
-    $db = Database::getConnection();
     $stmt = $db->prepare("
-        INSERT INTO attendance_logs (user_id, mode, latitude, longitude, distance, status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, NOW())
+        INSERT INTO attendance_logs 
+        (attendance_uuid, user_id, mode, latitude, longitude, distance, status, reason, approval_status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
     ");
-    $stmt->execute([$userId, $mode, $lat, $lng, intval($distance), $status]);
+    $stmt->execute([
+        $uuid,
+        $userId,
+        $mode,
+        $lat,
+        $lng,
+        intval($distance),
+        $status,
+        $reason,
+        $approval
+    ]);
 } catch (Exception $e) {
     echo json_encode([
         "status" => "error",
         "message" => "❌ 存取打卡紀錄失敗: " . $e->getMessage()
     ]);
-    exit; // ⚠️ 一定要 exit，避免還繼續 echo success
+    exit;
 }
 
+// 回傳給前端（乾淨結構）
 echo json_encode([
     "status" => $status,
-    "message" => $message,
-    "distance" => intval($distance)
+    "message" => $message,             // 框1用
+    "employee_name" => $userName,      // 框3用
+    "attendance_time" => $now,         // 框3用
+    "reason" => $reason,               // 框3用
+    "distance" => intval($distance),
+    "approval_status" => $approval,
+    "attendance_uuid" => $uuid,
+    "approval_url" => $approvalUrl,    // 框3用（跳官方帳號 + 帶指令）
+    "supervisors" => $supervisors      // 框2用
 ]);
-
 
 // --- 工具函式 ---
 function calculateDistance($lat, $lng) {

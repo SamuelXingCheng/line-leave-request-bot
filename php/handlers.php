@@ -14,7 +14,7 @@ function handleMessage($event, $db) {
 
     // ---------- 出勤打卡 ----------
     if ($text === "/打卡") {
-        $liffId  = "2008053226-xQwNABDP"; // 你的 LIFF ID
+        $liffId  = getenv("LIFF_ID"); // 你的 LIFF ID
         $liffUrl = "line://app/" . $liffId;
     
         $templateMessage = [
