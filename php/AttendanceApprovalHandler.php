@@ -65,10 +65,32 @@ class AttendanceApprovalHandler {
             WHERE attendance_uuid = ?
         ");
         $updateStmt->execute([$uuid]);
+
+        // 判斷是 GPS 打卡還是補打卡
+        $isCorrection = is_null($row['latitude']) && is_null($row['longitude']);
+        $mode   = $row['mode'];             // 上班 or 下班
+        $reason = $row['reason'] ?? "—";
+        $time   = $row['created_at'];
+
+        if ($isCorrection) {
+            // 補打卡
+            $msg = "✅ 已完成補打卡簽核\n"
+                 . "員工：{$row['employee_name']}\n"
+                 . "類型：{$mode}\n"
+                 . "時間：{$time}\n"
+                 . "原因：{$reason}\n"
+                 . "編號：{$uuid}";
+        } else {
+            // GPS 打卡
+            $msg = "✅ 已完成打卡簽核\n"
+                 . "員工：{$row['employee_name']}\n"
+                 . "類型：{$mode}\n"
+                 . "時間：{$time}\n"
+                 . "位置：Lat {$row['latitude']}, Lng {$row['longitude']}\n"
+                 . "編號：{$uuid}";
+        }
     
-        replyTextMessage($replyToken, "✅ 已完成打卡簽核（編號 {$uuid}，員工：{$row['employee_name']}）。");
-    
-        // TODO: 可加上推播通知員工
+        replyTextMessage($replyToken, $msg);
+
     }
-    
 }

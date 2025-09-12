@@ -7,6 +7,7 @@ require_once __DIR__ . '/ApprovalHandler.php';
 require_once __DIR__ . '/DeleteHandler.php';
 require_once __DIR__ . '/RegisterHandler.php';
 require_once __DIR__ . '/AttendanceApprovalHandler.php';
+require_once __DIR__ . '/CorrectionHandler.php';
 
 function handleMessage($event, $db) {
     $replyToken = $event['replyToken'];
@@ -46,8 +47,15 @@ function handleMessage($event, $db) {
         return;
     }
 
+    // ---------- 打卡審核 ----------
     $attendanceApprovalHandler = new AttendanceApprovalHandler($userId, $text);
     if ($attendanceApprovalHandler->handle($replyToken)) {
+        return;
+    }
+
+    // ---------- 補打卡申請 ----------
+    $correctionHandler = new CorrectionHandler($userId, $text);
+    if ($correctionHandler->handle($replyToken)) {
         return;
     }
 
@@ -62,8 +70,8 @@ function handleMessage($event, $db) {
         return;
     }
 
-    // ---------- 簽核指令 ----------
-    if (strpos($text, "/同意請假") === 0 || strpos($text, "/同意補打卡") === 0) {
+    // ---------- 請假同意指令 ----------
+    if (strpos($text, "/同意請假") === 0 ) {
         $handler = new ApprovalHandler($userId, $text);
         $handler->handle($replyToken);
         return;
@@ -96,5 +104,5 @@ function handleMessage($event, $db) {
     }
 
     // ---------- 預設回覆 ----------
-    replyTextMessage($replyToken, "❓ 未知指令，請輸入 /請假 或 /打卡");
+    replyTextMessage($replyToken, "❓ 未知指令，請輸入 /請假、/打卡 或 /補打卡");
 }

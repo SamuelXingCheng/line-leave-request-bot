@@ -27,17 +27,6 @@ class ApprovalHandler {
             return true;
         }
 
-        if (strpos($this->userText, "/同意補打卡") === 0) {
-            $parts = explode(" ", $this->userText);
-            if (count($parts) === 2) {
-                $correctionId = $parts[1];
-                $this->handleApproveCorrection($replyToken, $correctionId);
-            } else {
-                replyTextMessage($replyToken, "❗請使用格式：/同意補打卡 補打卡ID");
-            }
-            return true;
-        }
-
         return false; // 非簽核指令
     }
 
@@ -83,24 +72,4 @@ class ApprovalHandler {
         replyTextMessage($replyToken, "✅ 已完成請假簽核（編號 {$groupId}，共 {$approvedCount} 筆）。");
     }
     
-
-    private function handleApproveCorrection($replyToken, $correctionId) {
-        // 撈取補打卡資料
-        $stmt = $this->db->prepare("SELECT * FROM corrections WHERE id = ? AND status = 'pending'");
-        $stmt->execute([$correctionId]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        if (!$row) {
-            replyTextMessage($replyToken, "❌ 找不到待簽核的補打卡資料（ID: {$correctionId}）。");
-            return;
-        }
-
-        // 更新狀態
-        $updateStmt = $this->db->prepare("UPDATE corrections SET status = 'approved', updated_at = NOW() WHERE id = ?");
-        $updateStmt->execute([$correctionId]);
-
-        replyTextMessage($replyToken, "✅ 已完成補打卡簽核（ID: {$correctionId}）。");
-
-        // TODO: 可加上推播給員工
-    }
 }
