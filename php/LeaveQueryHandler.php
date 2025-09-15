@@ -158,23 +158,31 @@ class LeaveQueryHandler {
     }
 
     // ✅ 新增給 DeleteHandler 用的方法
-    public function handleWithDateRange($startDate, $endDate, $prefixMessage = null) {
+    public function handleWithDateRange(DateTimeImmutable $startDate, DateTimeImmutable $endDate, $prefixMessage = null) {
+        error_log("handleWithDateRange start=" . $startDate->format("Y-m-d") . " end=" . $endDate->format("Y-m-d"));
+    
         $stmt = $this->db->prepare("
             SELECT request_group_id, start_at, end_at, leave_type, status
             FROM leave_requests
             WHERE user_id = ? AND start_at >= ? AND end_at <= ?
             ORDER BY start_at DESC
         ");
-        $stmt->execute([$this->lineId, $startDate->format("Y-m-d 00:00:00"), $endDate->format("Y-m-d 23:59:59")]);
+        $stmt->execute([
+            $this->lineId,
+            $startDate->format("Y-m-d 00:00:00"),
+            $endDate->format("Y-m-d 23:59:59")
+        ]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
+    
+        error_log("handleWithDateRange rows=" . json_encode($rows));
+    
         if (!$rows) {
             replyTextMessage($this->replyToken, "📭 此區間內沒有請假紀錄");
             return;
         }
-
+    
         $flexMessage = $this->buildFlexMessage($rows);
-
+    
         if ($prefixMessage) {
             replyMessage($this->replyToken, [
                 ["type" => "text", "text" => $prefixMessage],
@@ -184,6 +192,7 @@ class LeaveQueryHandler {
             replyMessage($this->replyToken, $flexMessage);
         }
     }
+    
 
     private function queryAndReply($startDate, $endDate) {
         $stmt = $this->db->prepare("

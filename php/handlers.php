@@ -72,11 +72,9 @@ function handleMessage($event, $db) {
     }
 
     // ---------- 刪除請假 ----------
-    if (strpos($text, "/刪除請假") === 0) {
-        $handler = new DeleteHandler($userId, $event);
-        if ($handler->handle()) {
-            return;
-        }
+    $deleteHandler = new DeleteHandler($userId, $text, $replyToken);
+    if ($deleteHandler->handle()) {
+        return;
     }
 
     // ---------- 取消流程 ----------
