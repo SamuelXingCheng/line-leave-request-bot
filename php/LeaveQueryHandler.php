@@ -2,6 +2,7 @@
 // LeaveQueryHandler.php
 require_once __DIR__ . '/Session.php';
 require_once __DIR__ . '/Db.php';
+require_once __DIR__ . '/utils.php';
 
 class LeaveQueryHandler {
     private $lineId;
@@ -27,6 +28,8 @@ class LeaveQueryHandler {
                 "text" => "請選擇要查詢的範圍：",
                 "quickReply" => [
                     "items" => [
+                        // ⭐ 新增「查剩餘休假」
+                        ["type" => "action", "action" => ["type" => "message", "label" => "📅 剩餘休假時數", "text" => "查剩餘休假"]],
                         ["type" => "action", "action" => ["type" => "message", "label" => "📅 今天", "text" => "查今天"]],
                         ["type" => "action", "action" => ["type" => "message", "label" => "📆 上個月", "text" => "查上個月"]],
                         ["type" => "action", "action" => ["type" => "message", "label" => "📊 本月", "text" => "查本月"]],
@@ -40,6 +43,94 @@ class LeaveQueryHandler {
             replyMessage($replyToken, $message);
             return true;
         }
+
+        // Step X: 查詢剩餘休假
+        if ($this->userText === "查剩餘休假") {
+            $stats = getLeaveSummary($this->lineId);
+        
+            $contents = [
+                "type" => "bubble",
+                "body" => [
+                    "type" => "box",
+                    "layout" => "vertical",
+                    "contents" => [
+                        [
+                            "type" => "text",
+                            "text" => "📊 特休統計（今年）",
+                            "weight" => "bold",
+                            "size" => "lg",
+                            "margin" => "md"
+                        ],
+                        ["type" => "separator", "margin" => "md"],
+                        [
+                            "type" => "text",
+                            "text" => "應得：" . formatHoursAndDays($stats['entitledAnnual']),
+                            "size" => "sm"
+                        ],
+                        [
+                            "type" => "text",
+                            "text" => "已用：" . formatHoursAndDays($stats['usedAnnual']),
+                            "size" => "sm",
+                            "color" => "#CC0000"
+                        ],
+                        [
+                            "type" => "text",
+                            "text" => "剩餘：" . formatHoursAndDays($stats['remainingAnnual']),
+                            "size" => "sm",
+                            "color" => "#228B22"
+                        ],
+                        ["type" => "separator", "margin" => "md"],
+                        [
+                            "type" => "text",
+                            "text" => "📅 特休紀錄",
+                            "weight" => "bold",
+                            "size" => "md",
+                            "margin" => "md"
+                        ]
+                    ]
+                ]
+            ];
+        
+            if ($stats['annualDetails']) {
+                foreach ($stats['annualDetails'] as $row) {
+                    $contents["body"]["contents"][] = [
+                        "type" => "box",
+                        "layout" => "vertical",
+                        "margin" => "sm",
+                        "contents" => [
+                            [
+                                "type" => "text",
+                                "text" => substr($row['start_at'],0,16) . " ~ " . substr($row['end_at'],0,16),
+                                "size" => "sm",
+                                "color" => "#555555"
+                            ],
+                            [
+                                "type" => "text",
+                                "text" => "原因: " . ($row['reason'] ?: "未填寫"),
+                                "size" => "xs",
+                                "color" => "#111111"
+                            ]
+                        ]
+                    ];
+                }
+            } else {
+                $contents["body"]["contents"][] = [
+                    "type" => "text",
+                    "text" => "（今年尚未使用特休）",
+                    "size" => "sm",
+                    "color" => "#999999",
+                    "margin" => "md"
+                ];
+            }
+        
+            replyMessage($replyToken, [
+                "type" => "flex",
+                "altText" => "📊 特休統計（今年）",
+                "contents" => $contents
+            ]);
+            return true;
+        }
+
 
         // Step 2: 處理查詢範圍
         if ($this->session->getStep() === "query_range") {
