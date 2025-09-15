@@ -134,7 +134,7 @@ class LeaveQueryHandler {
             $this->session->set("last_query_end", $endDate->format("Y-m-d"));
 
             $this->queryAndReply($startDate, $endDate);
-            $this->session->setStep(null);
+            $this->session->clearStep();
             return true;
         }
 
@@ -150,7 +150,7 @@ class LeaveQueryHandler {
             }
 
             $this->queryAndReply($startDate, $endDate);
-            $this->session->clear();
+            $this->session->clearStep();
             return true;
         }
 

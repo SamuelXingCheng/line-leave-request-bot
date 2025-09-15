@@ -27,6 +27,15 @@ class UserSession {
         $stmt->execute([$this->lineId, $step]);
     }
 
+    public function clearStep() {
+        $stmt = $this->db->prepare("
+            UPDATE sessions 
+            SET step = NULL, updated_at = NOW() 
+            WHERE line_id = ?
+        ");
+        $stmt->execute([$this->lineId]);
+    }
+    
     public function set($key, $value) {
         $currentData = $this->getData();
         $currentData[$key] = $value;
