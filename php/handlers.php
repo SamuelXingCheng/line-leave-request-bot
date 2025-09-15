@@ -10,6 +10,7 @@ require_once __DIR__ . '/AttendanceApprovalHandler.php';
 require_once __DIR__ . '/CorrectionHandler.php';
 require_once __DIR__ . '/AttendanceHandler.php';
 require_once __DIR__ . '/EmployeeQueryHandler.php';
+require_once __DIR__ . '/MoreFeaturesHandler.php';
 
 function handleMessage($event, $db) {
     $replyToken = $event['replyToken'];
@@ -73,6 +74,12 @@ function handleMessage($event, $db) {
     // ---------- 請假流程 ----------
     $leaveFlowHandler = new LeaveFlowHandler($userId, $event, $db);
     if ($leaveFlowHandler->handle()) {
+        return;
+    }
+
+    // ---------- 更多功能 ----------
+    $moreHandler = new MoreFeaturesHandler($userId, $text, $replyToken);
+    if ($moreHandler->handle()) {
         return;
     }
 
