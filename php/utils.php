@@ -271,3 +271,9 @@ function getLeaveSummary($userId) {
     ];
 }
 
+/**
+ * 取得全域指令清單
+ */
+function getGlobalCommands() {
+    return ["/更多功能", "/補打卡", "/註冊", "/請假", "/查詢同事"];
+}
