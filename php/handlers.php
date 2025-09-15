@@ -9,6 +9,7 @@ require_once __DIR__ . '/RegisterHandler.php';
 require_once __DIR__ . '/AttendanceApprovalHandler.php';
 require_once __DIR__ . '/CorrectionHandler.php';
 require_once __DIR__ . '/AttendanceHandler.php';
+require_once __DIR__ . '/EmployeeQueryHandler.php';
 
 function handleMessage($event, $db) {
     $replyToken = $event['replyToken'];
@@ -24,6 +25,12 @@ function handleMessage($event, $db) {
     // ---------- 註冊 ----------
     $registerHandler = new RegisterHandler($userId, $text, $replyToken);
     if ($registerHandler->handle()) {
+        return;
+    }
+
+    // ---------- 查詢同事 ----------
+    $employeeHandler = new EmployeeQueryHandler($userId, $text, $replyToken);
+    if ($employeeHandler->handle()) {
         return;
     }
 
