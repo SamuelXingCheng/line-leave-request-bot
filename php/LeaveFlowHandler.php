@@ -1,9 +1,9 @@
 <?php
-// LeaveFlow.php
+// LeaveFlowHandler.php
 require_once __DIR__ . '/utils.php';
 require_once __DIR__ . '/Session.php';
 
-class LeaveFlow {
+class LeaveFlowHandler {
     private $lineId;
     private $event;
     private $session;
