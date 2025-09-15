@@ -71,8 +71,8 @@ function handleMessage($event, $db) {
     }
 
     // ---------- 請假流程 ----------
-    $flow = new LeaveFlow($userId, $event, $db);
-    if ($flow->handle()) {
+    $leaveFlowHandler = new LeaveFlowHandler($userId, $event, $db);
+    if ($leaveFlowHandler->handle()) {
         return;
     }
 
