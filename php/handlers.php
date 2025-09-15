@@ -60,14 +60,8 @@ function handleMessage($event, $db) {
     }
 
     // ---------- 查詢請假 ----------
-    if (strpos($text, "/查詢請假") === 0 || $text === "查今天" || 
-        $text === "查上個月" || $text === "查本月" || $text === "查今年" || 
-        $text === "自訂查詢" || $text === "/取消查詢" || 
-        $text === "查剩餘休假" ||
-        preg_match('/\d{4}\/\d{2}\/\d{2}-\d{4}\/\d{2}\/\d{2}/', $text)) {
-
-        $handler = new LeaveQueryHandler($userId, $text);
-        $handler->handle($replyToken);
+    $leaveQueryHandler = new LeaveQueryHandler($userId, $text, $replyToken);
+    if ($leaveQueryHandler->handle()) {
         return;
     }
 
