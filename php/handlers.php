@@ -78,21 +78,15 @@ function handleMessage($event, $db) {
     }
 
     // ---------- 取消流程 ----------
-    if (in_array($text, ["/取消請假", "/取消查詢", "/取消補打卡"])) {
-        $handler  = new CancelHandler($userId, $text);
-        $messages = $handler->handle();
-        if ($messages) {
-            foreach ($messages as $msg) {
-                replyTextMessage($replyToken, $msg['text']);
-            }
-            return;
-        }
+    $cancelHandler = new CancelHandler($userId, $text, $replyToken);
+    if ($cancelHandler->handle()) {
+        return;
     }
 
     // ---------- 請假流程 ----------
     $flow = new LeaveFlow($userId, $event, $db);
     if ($flow->handle()) {
-        return; // 已處理
+        return;
     }
 
     // ---------- 預設回覆 ----------
