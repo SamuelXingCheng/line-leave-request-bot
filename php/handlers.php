@@ -66,9 +66,8 @@ function handleMessage($event, $db) {
     }
 
     // ---------- 請假同意指令 ----------
-    if (strpos($text, "/同意請假") === 0 ) {
-        $handler = new ApprovalHandler($userId, $text);
-        $handler->handle($replyToken);
+    $approvalHandler = new ApprovalHandler($userId, $text, $replyToken);
+    if ($approvalHandler->handle()) {
         return;
     }
 
