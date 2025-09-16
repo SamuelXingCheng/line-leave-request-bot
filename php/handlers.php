@@ -11,6 +11,7 @@ require_once __DIR__ . '/CorrectionHandler.php';
 require_once __DIR__ . '/AttendanceHandler.php';
 require_once __DIR__ . '/EmployeeQueryHandler.php';
 require_once __DIR__ . '/MoreFeaturesHandler.php';
+require_once __DIR__ . '/AttendanceQueryHandler.php';
 
 function handleMessage($event, $db) {
     $replyToken = $event['replyToken'];
@@ -47,6 +48,12 @@ function handleMessage($event, $db) {
         return;
     }
 
+    // ---------- 查詢打卡紀錄 ----------
+    $attendanceQueryHandler = new AttendanceQueryHandler($userId, $text, $replyToken);
+    if ($attendanceQueryHandler->handle()) {
+        return;
+    }
+    
     // ---------- 查詢請假 ----------
     $leaveQueryHandler = new LeaveQueryHandler($userId, $text, $replyToken);
     if ($leaveQueryHandler->handle()) {

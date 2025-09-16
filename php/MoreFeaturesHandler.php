@@ -21,6 +21,7 @@ class MoreFeaturesHandler {
         replyQuickReply($this->replyToken, "請選擇功能：", [
             ["補打卡", "/補打卡"],
             ["查詢同事", "/查詢同事"],
+            ["查詢打卡紀錄", "/查詢打卡"],
             ["初次註冊", "/註冊"]
         ]);
 
