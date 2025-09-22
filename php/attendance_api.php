@@ -84,8 +84,11 @@ if ($distance <= ALLOWED_RADIUS) {
     $approvalCommand = "/審核打卡 {$uuid}";
     $approvalUrl = "https://line.me/R/oaMessage/@{$BOT_BASIC_ID}/?" . rawurlencode($approvalCommand);
 
+    // Google Maps 連結
+    $mapUrl = "https://www.google.com/maps?q={$lat},{$lng}";
+
     // 提示訊息（只給框1用）
-    $message = "⚠️ 不在公司範圍內（距離 " . intval($distance) . " 公尺），打卡已送出並記錄為【待審核】。";
+    $message = "⚠️ 不在公司範圍內（距離 " . intval($distance) . " 公尺），打卡狀態為【待審核】。";
 }
 
 // 存進資料庫
@@ -125,6 +128,7 @@ echo json_encode([
     "approval_status" => $approval,
     "attendance_uuid" => $uuid,
     "approval_url" => $approvalUrl,    // 框3用（跳官方帳號 + 帶指令）
+    "map_url" => $mapUrl ?? null,      // 地圖連結
     "supervisors" => $supervisors      // 框2用
 ]);
 
