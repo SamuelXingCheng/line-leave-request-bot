@@ -20,6 +20,13 @@ class CorrectionHandler {
     public function handle($replyToken) {
         $step = $this->session->getStep();
 
+        // 全域取消
+        if ($this->userText === "/取消補打卡") {
+            $this->session->clear();
+            replyTextMessage($replyToken, "❌ 已取消補打卡流程");
+            return true;
+        }
+        
         // Step 1: 啟動補打卡流程
         if (strpos($this->userText, "/補打卡") === 0) {
             $this->session->reset();
