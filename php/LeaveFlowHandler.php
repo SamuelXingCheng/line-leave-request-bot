@@ -29,8 +29,6 @@ class LeaveFlowHandler {
             return $this->handleLeaveCustomTime($userText);
         } elseif ($step === "leave_type") {
             return $this->selectLeaveType($userText);
-        } elseif ($step === "leave_reason_detail") {
-            return $this->handleLeaveReasonDetail($userText);
         }
 
         return false;
@@ -159,50 +157,47 @@ class LeaveFlowHandler {
 
     /** 第五步：使用者選擇假別 */
     private function selectLeaveType($userText) {
+        // 1. 設定假別
         $this->session->set("leave_type", $userText);
-        $this->session->setStep("leave_reason_detail");
+        
+        // 2. 設定預設原因 (因為資料庫欄位可能需要)
+        $defaultReason = "（未填寫）";
+        $this->session->set("reason", $defaultReason);
 
-        replyTextMessage($this->event['replyToken'], "✏️ 請填寫請假事由：");
-        return true;
+        // 3. 直接執行原本 "handleLeaveReasonDetail" 的存檔邏輯
+        return $this->finishLeaveRequest($defaultReason);
     }
 
     /** 第六步：輸入原因 → 存 DB + 產生訊息 */
-    private function handleLeaveReasonDetail($userText) {
-        $this->session->set("reason", $userText);
-
+    private function finishLeaveRequest($reason) {
         $startDate = $this->session->get("start_date");
         $endDate   = $this->session->get("end_date");
         $startTime = $this->session->get("start_time");
         $endTime   = $this->session->get("end_time");
         $leaveType = $this->session->get("leave_type");
-        $reason    = $this->session->get("reason");
+        // $reason 已由參數傳入
 
-        // 1. 查員工姓名與角色 (Role)
-        // [修改] 多撈一個 role 欄位
+        // 1. 查員工姓名與角色 (整合 Boss 邏輯)
         $stmt = $this->db->prepare("SELECT name, role FROM users WHERE user_id = ?");
         $stmt->execute([$this->lineId]);
         $userRow = $stmt->fetch(PDO::FETCH_ASSOC);
         
         $userName = $userRow['name'] ?? "未知姓名";
-        $userRole = $userRow['role'] ?? "employee"; // 預設為一般員工
-
-        // 判斷是否為最高主管
+        $userRole = $userRow['role'] ?? "employee"; 
         $isBoss = ($userRole === 'boss');
 
         // 2. 決定初始狀態
-        // 如果是 Boss，直接 approved；否則 pending
         $initialStatus = $isBoss ? 'approved' : 'pending';
 
-        // 3. 查主管（如果是 Boss 就不需要查主管，但為了避免變數未定義，給空陣列）
+        // 3. 查主管 (Boss 免查)
         $supervisors = [];
         if (!$isBoss) {
             $stmt = $this->db->prepare("SELECT supervisor_id FROM user_supervisors WHERE user_id = ?");
             $stmt->execute([$this->lineId]);
             $supervisors = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
-            // [防呆] 如果是一般員工但沒設定主管
             if (empty($supervisors)) {
-                replyTextMessage($this->event['replyToken'], "⚠️ 系統未設定您的主管，無法送出請假申請。請聯繫管理員。");
+                replyTextMessage($this->event['replyToken'], "⚠️ 系統未設定您的主管，無法送出請假申請。");
                 return true; 
             }
         }
@@ -210,7 +205,6 @@ class LeaveFlowHandler {
         $requestGroupId = $this->generateUuid();
 
         // 4. 存請假紀錄
-        // [修改] status 欄位改用變數 $initialStatus
         $stmt = $this->db->prepare("
             INSERT INTO leave_requests (
                 request_group_id, user_id, user_name, leave_type, reason, start_at, end_at, status, created_at
@@ -225,12 +219,11 @@ class LeaveFlowHandler {
             $reason,
             $startDate . ' ' . $startTime,
             $endDate . ' ' . $endTime,
-            $initialStatus // 這裡帶入變數
+            $initialStatus
         ]);
         $leaveId = $this->db->lastInsertId();
 
-        // 5. 初始化主管簽核
-        // [修改] 只有一般員工 ($isBoss == false) 才需要寫入 leave_approvals
+        // 5. 寫入簽核關聯 (Boss 免簽)
         if (!$isBoss) {
             foreach ($supervisors as $supId) {
                 $stmt = $this->db->prepare("
@@ -243,15 +236,11 @@ class LeaveFlowHandler {
 
         // 6. 回覆訊息
         if ($isBoss) {
-            // [新增] 如果是 Boss，直接回覆成功訊息，不需要轉傳
             $msg = "✅ 您的請假申請已自動核准歸檔。\n" .
-                   "──────────────\n" .
-                   "📅 日期：{$startDate} {$startTime} ~ {$endDate} {$endTime}\n" .
-                   "假別：{$leaveType}\n" .
-                   "事由：{$reason}";
+                   "📅 {$startDate} {$startTime} ~ {$endDate} {$endTime}\n" .
+                   "假別：{$leaveType}";
             replyTextMessage($this->event['replyToken'], $msg);
         } else {
-            // [原有邏輯] 一般員工，產生轉傳訊息
             $requests = [[
                 "start_at"       => $startDate . ' ' . $startTime,
                 "end_at"         => $endDate . ' ' . $endTime,
