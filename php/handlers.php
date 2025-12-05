@@ -18,78 +18,48 @@ function handleMessage($event, $db) {
     $userId     = $event['source']['userId'];
     $text       = $event['message']['text'];
 
-    // ---------- 出勤打卡 ----------
-    $attendanceHandler = new AttendanceHandler($userId, $text, $replyToken);
-    if ($attendanceHandler->handle()) {
-        return;
-    }
-
-    // ---------- 註冊 ----------
-    $registerHandler = new RegisterHandler($userId, $text, $replyToken);
-    if ($registerHandler->handle()) {
-        return;
-    }
-
-    // ---------- 查詢同事 ----------
-    $employeeHandler = new EmployeeQueryHandler($userId, $text, $replyToken);
-    if ($employeeHandler->handle()) {
-        return;
-    }
-
-    // ---------- 打卡審核 ----------
-    $attendanceApprovalHandler = new AttendanceApprovalHandler($userId, $text);
-    if ($attendanceApprovalHandler->handle($replyToken)) {
-        return;
-    }
-
-    // ---------- 補打卡申請 ----------
-    $correctionHandler = new CorrectionHandler($userId, $text);
-    if ($correctionHandler->handle($replyToken)) {
-        return;
-    }
-
-    // ---------- 查詢打卡紀錄 ----------
-    $attendanceQueryHandler = new AttendanceQueryHandler($userId, $text, $replyToken);
-    if ($attendanceQueryHandler->handle()) {
-        return;
-    }
-    
-    // ---------- 查詢請假 ----------
-    $leaveQueryHandler = new LeaveQueryHandler($userId, $text, $replyToken);
-    if ($leaveQueryHandler->handle()) {
-        return;
-    }
-
-    // ---------- 請假同意指令 ----------
-    $approvalHandler = new ApprovalHandler($userId, $text, $replyToken);
-    if ($approvalHandler->handle()) {
-        return;
-    }
-
-    // ---------- 刪除請假 ----------
-    $deleteHandler = new DeleteHandler($userId, $text, $replyToken);
-    if ($deleteHandler->handle()) {
-        return;
-    }
-
-    // ---------- 取消流程 ----------
+    // 1️⃣ 【最高優先】取消與刪除指令
     $cancelHandler = new CancelHandler($userId, $text, $replyToken);
-    if ($cancelHandler->handle()) {
-        return;
-    }
+    if ($cancelHandler->handle()) return;
 
-    // ---------- 請假流程 ----------
-    $leaveFlowHandler = new LeaveFlowHandler($userId, $event, $db);
-    if ($leaveFlowHandler->handle()) {
-        return;
-    }
+    $deleteHandler = new DeleteHandler($userId, $text, $replyToken);
+    if ($deleteHandler->handle()) return;
 
-    // ---------- 更多功能 ----------
+    // 2️⃣ 【次高優先】簽核指令 (避免主管被員工的查詢狀態卡住)
+    $approvalHandler = new ApprovalHandler($userId, $text, $replyToken);
+    if ($approvalHandler->handle()) return;
+
+    $attendanceApprovalHandler = new AttendanceApprovalHandler($userId, $text);
+    if ($attendanceApprovalHandler->handle($replyToken)) return;
+
+    // 3️⃣ 【功能指令】無狀態的查詢
+    $employeeHandler = new EmployeeQueryHandler($userId, $text, $replyToken);
+    if ($employeeHandler->handle()) return;
+
+    $attendanceHandler = new AttendanceHandler($userId, $text, $replyToken);
+    if ($attendanceHandler->handle()) return;
+    
     $moreHandler = new MoreFeaturesHandler($userId, $text, $replyToken);
-    if ($moreHandler->handle()) {
-        return;
-    }
+    if ($moreHandler->handle()) return;
 
-    // ---------- 預設回覆 ----------
-    replyTextMessage($replyToken, "❓ 未知指令，請輸入 /請假、/打卡 或 /補打卡");
+    // 4️⃣ 【有狀態的流程】(補打卡、請假、查詢)
+    // 這些 Handler 內部必須實作「全域指令檢查」，否則會吃掉上面的指令
+    
+    $registerHandler = new RegisterHandler($userId, $text, $replyToken);
+    if ($registerHandler->handle()) return;
+
+    $correctionHandler = new CorrectionHandler($userId, $text);
+    if ($correctionHandler->handle($replyToken)) return;
+
+    $leaveFlowHandler = new LeaveFlowHandler($userId, $event, $db);
+    if ($leaveFlowHandler->handle()) return;
+    
+    $leaveQueryHandler = new LeaveQueryHandler($userId, $text, $replyToken);
+    if ($leaveQueryHandler->handle()) return;
+
+    $attendanceQueryHandler = new AttendanceQueryHandler($userId, $text, $replyToken);
+    if ($attendanceQueryHandler->handle()) return;
+
+    // 5️⃣ 預設回覆
+    replyTextMessage($replyToken, "❓ 未知指令，請點選選單或輸入 /更多功能");
 }

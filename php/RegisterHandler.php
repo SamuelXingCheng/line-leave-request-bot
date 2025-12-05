@@ -22,6 +22,12 @@ class RegisterHandler {
     public function handle() {
         $state = $this->session->get("state");
         
+        // 🔥【新增這段】檢查全域指令
+        if (in_array($this->userText, getGlobalCommands()) && $this->userText !== "/註冊") {
+            $this->session->reset(); // 註冊被中斷通常需要 reset
+            return false;
+        }
+        
         // ✅ 全域取消註冊流程
         if ($this->userText === "/取消") {
             $this->session->reset();

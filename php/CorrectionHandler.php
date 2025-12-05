@@ -20,6 +20,12 @@ class CorrectionHandler {
     public function handle($replyToken) {
         $step = $this->session->getStep();
 
+        // 🔥【新增這段】檢查全域指令，如果是就立刻讓路
+        if (in_array($this->userText, getGlobalCommands())) {
+            $this->session->clearStep(); // 清除卡住的狀態
+            return false; // 把棒子交回給 handlers.php
+        }
+        
         // 全域取消
         if ($this->userText === "/取消補打卡") {
             $this->session->clear();

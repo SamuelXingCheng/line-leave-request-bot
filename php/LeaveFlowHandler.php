@@ -17,6 +17,14 @@ class LeaveFlowHandler {
 
     public function handle() {
         $userText = $this->event['message']['text'];
+
+        // 🔥【新增這段】檢查全域指令
+        // 注意：這裡不包含 "/請假" 本身，否則會自己卡自己，所以要排除
+        if (in_array($userText, getGlobalCommands()) && $userText !== "/請假") {
+            $this->session->clearStep();
+            return false; 
+        }
+        
         $step = $this->session->getStep();
 
         if ($userText === "/請假") {

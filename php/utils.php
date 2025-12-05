@@ -193,7 +193,7 @@ function calculateAnnualLeaveDays($hireDate, $today = null) {
     if ($years < 3) return 10;
     if ($years < 5) return 14;
     if ($years < 10) return 15;
-    return min(15 + ($years - 10), 30); // 最多30天
+    return min(16 + ($years - 10), 30); // 最多30天
 }
 
 function formatHoursAndDays($hours) {
@@ -275,5 +275,17 @@ function getLeaveSummary($userId) {
  * 取得全域指令清單
  */
 function getGlobalCommands() {
-    return ["/更多功能", "/補打卡", "/註冊", "/請假", "/查詢同事"];
+    // 📝 這裡列出所有「開頭指令」與「動作指令」
+    return [
+        "/更多功能", 
+        "/補打卡", "/取消補打卡",
+        "/註冊", 
+        "/請假", "/取消請假",
+        "/查詢請假", "/取消查詢",
+        "/查詢打卡", "/取消查詢打卡",
+        "/查詢同事",
+        "/同意請假", // 簽核指令 (重要)
+        "/審核打卡", // 簽核指令 (重要)
+        "/刪除請假"
+    ];
 }
