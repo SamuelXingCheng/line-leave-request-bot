@@ -45,6 +45,17 @@ class DeleteHandler {
             return true;
         }
 
+        // 3. 🔥【新增】刪除加班
+        if (strpos($this->userText, "/刪除加班") === 0) {
+            $parts = explode(" ", $this->userText);
+            if (count($parts) === 2) {
+                $this->handleDeleteOvertime($parts[1]);
+            } else {
+                replyTextMessage($this->replyToken, "❗請使用格式：/刪除加班 [加班編號]");
+            }
+            return true;
+        }
+
         return false;
     }
 
@@ -138,4 +149,38 @@ class DeleteHandler {
 
         replyTextMessage($this->replyToken, "已成功刪除該筆打卡申請。");
     }
+
+    /**
+     * 🔥【新增】刪除加班
+     */
+    private function handleDeleteOvertime($uuid) {
+        // 1. 查詢
+        $stmt = $this->db->prepare("SELECT user_id, status FROM overtime_requests WHERE overtime_uuid = ?");
+        $stmt->execute([$uuid]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$row) {
+            replyTextMessage($this->replyToken, "❌ 找不到該筆加班紀錄。");
+            return;
+        }
+
+        // 2. 權限
+        if ($row['user_id'] !== $this->userId) {
+            replyTextMessage($this->replyToken, "⚠️ 你無權刪除此紀錄。");
+            return;
+        }
+
+        // 3. 狀態
+        if ($row['status'] !== 'pending') {
+            replyTextMessage($this->replyToken, "❌ 只能刪除「待審核」的加班紀錄。");
+            return;
+        }
+
+        // 4. 刪除
+        $delStmt = $this->db->prepare("DELETE FROM overtime_requests WHERE overtime_uuid = ?");
+        $delStmt->execute([$uuid]);
+
+        replyTextMessage($this->replyToken, "🗑️ 已成功刪除該筆加班申請。");
+    }
+    
 }

@@ -14,6 +14,7 @@ require_once __DIR__ . '/MoreFeaturesHandler.php';
 require_once __DIR__ . '/AttendanceQueryHandler.php';
 require_once __DIR__ . '/OvertimeFlowHandler.php';
 require_once __DIR__ . '/OvertimeApprovalHandler.php';
+require_once __DIR__ . '/OvertimeQueryHandler.php';
 
 function handleMessage($event, $db) {
     $replyToken = $event['replyToken'];
@@ -36,6 +37,10 @@ function handleMessage($event, $db) {
 
     $overtimeApprovalHandler = new OvertimeApprovalHandler($userId, $text);
     if ($overtimeApprovalHandler->handle($replyToken)) return;
+
+    // 🔥【新增】加班查詢指令
+    $overtimeQueryHandler = new OvertimeQueryHandler($userId, $text, $replyToken);
+    if ($overtimeQueryHandler->handle()) return;
     
     // 3️⃣ 【功能指令】無狀態的查詢
     $employeeHandler = new EmployeeQueryHandler($userId, $text, $replyToken);
