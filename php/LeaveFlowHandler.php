@@ -25,7 +25,7 @@ class LeaveFlowHandler {
             $this->session->clearStep();
             return false; 
         }
-        
+
         // 1. 處理 Postback 事件 (日期與時間選擇器回傳)
         if ($this->event['type'] === 'postback') {
             $data = $this->event['postback']['data'];
@@ -53,12 +53,6 @@ class LeaveFlowHandler {
             return false;
         }
         $userText = $this->event['message']['text'];
-
-        // 檢查全域指令 (排除 /請假 本身)
-        if (in_array($userText, getGlobalCommands()) && $userText !== "/請假") {
-            $this->session->clearStep();
-            return false; 
-        }
         
         $step = $this->session->getStep();
 

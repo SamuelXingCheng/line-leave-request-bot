@@ -34,6 +34,9 @@ function handleMessage($event, $db) {
     $attendanceApprovalHandler = new AttendanceApprovalHandler($userId, $text);
     if ($attendanceApprovalHandler->handle($replyToken)) return;
 
+    $overtimeApprovalHandler = new OvertimeApprovalHandler($userId, $text);
+    if ($overtimeApprovalHandler->handle($replyToken)) return;
+    
     // 3️⃣ 【功能指令】無狀態的查詢
     $employeeHandler = new EmployeeQueryHandler($userId, $text, $replyToken);
     if ($employeeHandler->handle()) return;
@@ -66,8 +69,7 @@ function handleMessage($event, $db) {
     $overtimeFlowHandler = new OvertimeFlowHandler($userId, $event, $db);
     if ($overtimeFlowHandler->handle()) return;
 
-    $overtimeApprovalHandler = new OvertimeApprovalHandler($userId, $text);
-    if ($overtimeApprovalHandler->handle($replyToken)) return;
+    
 
     // 5️⃣ 預設回覆
     replyTextMessage($replyToken, "未知指令，請點選選單或輸入 /更多功能");

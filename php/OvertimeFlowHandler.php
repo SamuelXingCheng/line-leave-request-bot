@@ -25,7 +25,7 @@ class OvertimeFlowHandler {
             $this->session->clearStep();
             return false;
         }
-        
+
         // 1. 處理 Postback (日期/時間選擇器)
         if ($this->event['type'] === 'postback') {
             $data = $this->event['postback']['data'];
@@ -40,11 +40,6 @@ class OvertimeFlowHandler {
 
         $userText = $this->event['message']['text'] ?? '';
         
-        // 檢查全域指令 (排除 /加班)
-        if (in_array($userText, getGlobalCommands()) && $userText !== "/加班") {
-            $this->session->clearStep();
-            return false;
-        }
 
         $step = $this->session->getStep();
 
