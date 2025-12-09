@@ -16,7 +16,7 @@ require_once __DIR__ . '/AttendanceQueryHandler.php';
 function handleMessage($event, $db) {
     $replyToken = $event['replyToken'];
     $userId     = $event['source']['userId'];
-    $text       = $event['message']['text'];
+    $text       = $event['message']['text'] ?? ''; // 防止非文字訊息報錯
 
     // 1️⃣ 【最高優先】取消與刪除指令
     $cancelHandler = new CancelHandler($userId, $text, $replyToken);
@@ -48,8 +48,9 @@ function handleMessage($event, $db) {
     $registerHandler = new RegisterHandler($userId, $text, $replyToken);
     if ($registerHandler->handle()) return;
 
-    $correctionHandler = new CorrectionHandler($userId, $text);
-    if ($correctionHandler->handle($replyToken)) return;
+    // 🔥 修改：傳入 $event 並移除 handle() 的參數
+    $correctionHandler = new CorrectionHandler($userId, $event);
+    if ($correctionHandler->handle()) return;
 
     $leaveFlowHandler = new LeaveFlowHandler($userId, $event, $db);
     if ($leaveFlowHandler->handle()) return;
@@ -73,12 +74,22 @@ function handlePostback($event, $db) {
 
     // 解析 action (例如 action=select_leave_date)
     parse_str($data, $params);
+    $action = $params['action'] ?? '';
 
-    // 請假流程相關 Action
+    // 1. 請假流程相關 Action
     $leaveActions = ['select_leave_date', 'select_start_time', 'select_end_time'];
-
-    if (isset($params['action']) && in_array($params['action'], $leaveActions)) {
+    if (in_array($action, $leaveActions)) {
         $handler = new LeaveFlowHandler($userId, $event, $db);
         $handler->handle(); // 讓 LeaveFlowHandler 自己去解析 postback 參數
+        return;
+    }
+
+    // 2. 🔥 補打卡流程相關 Action (新增)
+    $correctionActions = ['select_correction_date', 'select_correction_time'];
+    if (in_array($action, $correctionActions)) {
+        // 因為 CorrectionHandler 現在建構子支援 ($userId, $event)，可以直接傳入
+        $handler = new CorrectionHandler($userId, $event);
+        $handler->handle();
+        return;
     }
 }
