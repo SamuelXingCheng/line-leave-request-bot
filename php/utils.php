@@ -211,14 +211,12 @@ function formatHoursAndDays($hours) {
 }
 
 /**
- * 取得請假統計 (含特休與補休)
+ * 取得請假統計 (含特休與補休，以及所有明細)
  */
 function getLeaveSummary($userId) {
     $pdo = Database::getConnection();
 
-    // ===========================
-    // 1. 特休計算 (原有邏輯)
-    // ===========================
+    // 1. 特休計算
     $stmt = $pdo->prepare("SELECT start_date FROM users WHERE user_id = ?");
     $stmt->execute([$userId]);
     $hireDate = $stmt->fetchColumn();
@@ -229,8 +227,7 @@ function getLeaveSummary($userId) {
         $entitledHours = $entitledDays * 8;
     }
 
-    // 統計「已核准」的請假時數 (扣除午休)
-    // 這裡我們一次撈出所有假別的總和
+    // 2. 統計各假別已用時數
     $stmt = $pdo->prepare("
         SELECT leave_type,
                COALESCE(SUM(
@@ -246,29 +243,13 @@ function getLeaveSummary($userId) {
         GROUP BY leave_type
     ");
     $stmt->execute([$userId]);
-    $leaveUsage = $stmt->fetchAll(PDO::FETCH_KEY_PAIR); // ['特休'=>16, '補休'=>4, ...]
+    $leaveUsage = $stmt->fetchAll(PDO::FETCH_KEY_PAIR); // ['特休'=>16, '事假'=>8, ...]
 
-    // 特休計算
+    // 特休
     $usedAnnual = $leaveUsage['特休'] ?? 0;
     $remainingAnnual = max(0, $entitledHours - $usedAnnual);
-    
-    // 特休明細 (原有邏輯)
-    $stmt = $pdo->prepare("
-        SELECT start_at, end_at, reason, status
-        FROM leave_requests
-        WHERE user_id = ? AND leave_type = '特休' AND status = 'approved'
-          AND YEAR(start_at) = YEAR(CURDATE())
-        ORDER BY start_at ASC
-    ");
-    $stmt->execute([$userId]);
-    $annualDetails = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // ===========================
-    // 2. 🔥 補休計算 (新增邏輯)
-    // ===========================
-    
-    // A. 收入：已核准的加班時數
-    // 假設加班也要扣午休 (若加班跨越 12:00-13:00)
+    // 3. 補休計算
     $stmt = $pdo->prepare("
         SELECT COALESCE(SUM(
                    TIMESTAMPDIFF(HOUR, start_at, end_at)
@@ -279,28 +260,36 @@ function getLeaveSummary($userId) {
                ), 0)
         FROM overtime_requests
         WHERE user_id = ? AND status = 'approved'
-          AND YEAR(start_at) = YEAR(CURDATE()) -- 限制今年 (可選)
+          AND YEAR(start_at) = YEAR(CURDATE())
     ");
     $stmt->execute([$userId]);
-    $earnedComp = $stmt->fetchColumn(); // 存入的補休
+    $earnedComp = $stmt->fetchColumn();
 
-    // B. 支出：已核准的補休請假
     $usedComp = $leaveUsage['補休'] ?? 0;
-
-    // C. 餘額
     $remainingComp = max(0, $earnedComp - $usedComp);
+
+    // 4. 🔥【修改】取得「所有假別」的請假明細 (不只特休)
+    $stmt = $pdo->prepare("
+        SELECT start_at, end_at, leave_type, reason, status
+        FROM leave_requests
+        WHERE user_id = ? AND status = 'approved'
+          AND YEAR(start_at) = YEAR(CURDATE())
+        ORDER BY start_at DESC 
+    ");
+    $stmt->execute([$userId]);
+    $allDetails = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     return [
         "entitledAnnual"  => $entitledHours,
         "usedAnnual"      => $usedAnnual,
         "remainingAnnual" => $remainingAnnual,
         
-        "earnedComp"      => $earnedComp,     // 🔥 加班總存入
-        "usedComp"        => $usedComp,       // 🔥 補休已用
-        "remainingComp"   => $remainingComp,  // 🔥 補休餘額
+        "earnedComp"      => $earnedComp,
+        "usedComp"        => $usedComp,
+        "remainingComp"   => $remainingComp,
         
-        "summary"         => $leaveUsage,
-        "annualDetails"   => $annualDetails
+        "summary"         => $leaveUsage, // 各假別統計
+        "allDetails"      => $allDetails  // 🔥 所有明細
     ];
 }
 
