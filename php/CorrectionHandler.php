@@ -12,7 +12,6 @@ class CorrectionHandler {
     private $session;
     private $replyToken;
 
-    // 🔥 改為接收整個 $event
     public function __construct($lineId, $event) {
         $this->lineId     = $lineId;
         $this->event      = $event;
@@ -26,7 +25,6 @@ class CorrectionHandler {
         $this->session  = new UserSession($lineId);
     }
 
-    // 🔥 移除參數，改用內部屬性
     public function handle() {
         // 1. 優先處理 Postback (日期/時間選擇器)
         if ($this->event['type'] === 'postback') {
@@ -36,9 +34,7 @@ class CorrectionHandler {
             // 📅 補打卡-選擇日期
             if (isset($params['action']) && $params['action'] === 'select_correction_date') {
                 $selectedDate = $this->event['postback']['params']['date'];
-                // 把選擇的日期當作文字輸入傳給處理函式
                 $this->userText = $selectedDate; 
-                // 強制設定 Step 確保邏輯正確 (雖然後面會判斷)
                 if ($this->session->getStep() === 'correction_date') {
                      return $this->processDateStep();
                 }
@@ -77,7 +73,6 @@ class CorrectionHandler {
             $today = date("Y/m/d");
             $yesterday = date("Y/m/d", strtotime("-1 day"));
 
-            // 🔥 自訂日期改為 Picker
             replyQuickReply($this->replyToken, "📅 請選擇補打卡的日期：", [
                 ["📆 今天 ($today)", $today],
                 ["📆 昨天 ($yesterday)", $yesterday],
@@ -95,7 +90,7 @@ class CorrectionHandler {
             return true;
         }
 
-        // Step 2: 選擇日期 (邏輯抽離)
+        // Step 2: 選擇日期
         if ($step === "correction_date") {
             return $this->processDateStep();
         }
@@ -106,7 +101,6 @@ class CorrectionHandler {
                 $this->session->setStep("correction_time");
                 $this->session->set("correction_type", $this->userText);
 
-                // 🔥 自訂時間改為 Picker
                 replyQuickReply($this->replyToken, "請選擇補打卡時間或自訂輸入：", [
                     ["08:30", "08:30"],
                     ["12:00", "12:00"],
@@ -129,16 +123,22 @@ class CorrectionHandler {
             return true;
         }
 
-        // Step 4: 輸入時間 (邏輯抽離)
+        // Step 4: 輸入時間
         if ($step === "correction_time") {
             return $this->processTimeStep();
         }
 
         // Step 5: 選擇原因
         if ($step === "correction_reason") {
-            if (in_array($this->userText, ["忘記打卡", "在外服事"])) {
+            // 🔥 修改：區分「忘記打卡」和「在外服事」
+            if ($this->userText === "忘記打卡") {
                 $this->session->setStep("correction_complete");
                 $this->session->set("correction_reason", $this->userText);
+            } elseif ($this->userText === "在外服事") {
+                // 🔥 如果是在外服事，跳到新步驟詢問說明
+                $this->session->setStep("correction_description");
+                replyTextMessage($this->replyToken, "請輸入服事內容說明：\n(例如：探訪聖徒、參加聚會)");
+                return true;
             } elseif ($this->userText === "自訂原因") {
                 $this->session->setStep("custom_reason");
                 replyTextMessage($this->replyToken, "請輸入補打卡原因：");
@@ -147,6 +147,15 @@ class CorrectionHandler {
                 replyTextMessage($this->replyToken, "❌ 請選擇有效的補打卡原因。");
                 return true;
             }
+        }
+
+        // 🔥 新增 Step 5.5: 處理服事說明
+        if ($step === "correction_description") {
+            // 將原因組合成：在外服事：XXX
+            $reason = "在外服事：" . $this->userText;
+            
+            $this->session->setStep("correction_complete");
+            $this->session->set("correction_reason", $reason);
         }
 
         // Step 6: 自訂原因 (純文字)
@@ -172,7 +181,6 @@ class CorrectionHandler {
             return true;
         }
 
-        // 支援 YYYY/MM/DD 或 YYYY-MM-DD
         $dateText = str_replace('-', '/', $this->userText); 
         $date = DateTime::createFromFormat("Y/m/d", $dateText);
         
