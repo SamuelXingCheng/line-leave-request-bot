@@ -108,7 +108,6 @@ class LeaveQueryHandler {
                         "margin" => "sm",
                         "contents" => [
                             ["type" => "text", "text" => substr($row['start_at'],0,16) . " ~ " . substr($row['end_at'],0,16), "size" => "sm", "color" => "#555555"],
-                            ["type" => "text", "text" => "原因: " . ($row['reason'] ?: "未填寫"), "size" => "xs", "color" => "#111111"]
                         ]
                     ];
                 }

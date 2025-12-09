@@ -17,43 +17,29 @@ class LeaveFlowHandler {
     }
 
     public function handle() {
-
         $userText = $this->event['message']['text'] ?? '';
 
-        // 🔥【修改這段】通用判斷：如果是指令 (以 / 開頭)，且不是 "/請假" 本身，就中斷流程
+        // 通用判斷：如果是指令 (以 / 開頭)，且不是 "/請假" 本身，就中斷流程
         if (isCommand($userText) && $userText !== "/請假") {
             $this->session->clearStep();
             return false; 
         }
-
-        // 1. 處理 Postback 事件 (日期與時間選擇器回傳)
+        
+        // 1. 處理 Postback 事件
         if ($this->event['type'] === 'postback') {
             $data = $this->event['postback']['data'];
             parse_str($data, $params);
 
-            // 📅 選擇日期
-            if (isset($params['action']) && $params['action'] === 'select_leave_date') {
-                $selectedDate = $this->event['postback']['params']['date'];
-                return $this->handleLeaveDate($selectedDate);
-            }
-            // 🕒 選擇開始時間
-            if (isset($params['action']) && $params['action'] === 'select_start_time') {
-                $selectedTime = $this->event['postback']['params']['time'];
-                return $this->handleCustomStartTime($selectedTime);
-            }
-            // 🕒 選擇結束時間
-            if (isset($params['action']) && $params['action'] === 'select_end_time') {
-                $selectedTime = $this->event['postback']['params']['time'];
-                return $this->handleCustomEndTime($selectedTime);
+            if (isset($params['action'])) {
+                if ($params['action'] === 'select_leave_date') return $this->handleLeaveDate($this->event['postback']['params']['date']);
+                if ($params['action'] === 'select_start_time') return $this->handleCustomStartTime($this->event['postback']['params']['time']);
+                if ($params['action'] === 'select_end_time') return $this->handleCustomEndTime($this->event['postback']['params']['time']);
             }
         }
 
         // 2. 處理一般文字訊息
-        if (!isset($this->event['message']['text'])) {
-            return false;
-        }
-        $userText = $this->event['message']['text'];
-        
+        if (!isset($this->event['message']['text'])) return false;
+
         $step = $this->session->getStep();
 
         if ($userText === "/請假") {
@@ -62,7 +48,6 @@ class LeaveFlowHandler {
             return $this->handleLeaveDate($userText);
         } elseif ($step === "leave_time") {
             return $this->handleLeaveTime($userText);
-        // 🔥 防止使用者不按按鈕直接打字，這兩步也要能接文字輸入
         } elseif ($step === "leave_custom_start") {
             return $this->handleCustomStartTime($userText);
         } elseif ($step === "leave_custom_end") {
@@ -268,16 +253,31 @@ class LeaveFlowHandler {
         return $this->finishLeaveRequest($defaultReason);
     }
 
-    /** 第六步：輸入原因 → 存 DB + 產生訊息 */
     private function finishLeaveRequest($reason) {
         $startDate = $this->session->get("start_date");
         $endDate   = $this->session->get("end_date");
         $startTime = $this->session->get("start_time");
         $endTime   = $this->session->get("end_time");
         $leaveType = $this->session->get("leave_type");
-        // $reason 已由參數傳入
 
-        // 1. 查員工姓名與角色 (整合 Boss 邏輯)
+        // 🔥【新增】自動切換邏輯
+        $autoSwitchMsg = "";
+        if ($leaveType === "特休") {
+            // 1. 計算本次請假時數
+            $requestHours = $this->calculateHours("$startDate $startTime", "$endDate $endTime");
+            
+            // 2. 查詢餘額
+            $stats = getLeaveSummary($this->lineId);
+            $compBalance = $stats['remainingComp']; // 補休餘額
+
+            // 3. 判斷是否足夠
+            if ($compBalance >= $requestHours && $requestHours > 0) {
+                $leaveType = "補休"; // ✅ 強制切換
+                $autoSwitchMsg = "\n💡 系統偵測到您有補休額度，已自動為您優先使用補休。";
+            }
+        }
+
+        // 1. 查員工資訊
         $stmt = $this->db->prepare("SELECT name, role FROM users WHERE user_id = ?");
         $stmt->execute([$this->lineId]);
         $userRow = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -289,13 +289,12 @@ class LeaveFlowHandler {
         // 2. 決定初始狀態
         $initialStatus = $isBoss ? 'approved' : 'pending';
 
-        // 3. 查主管 (Boss 免查)
+        // 3. 查主管
         $supervisors = [];
         if (!$isBoss) {
             $stmt = $this->db->prepare("SELECT supervisor_id FROM user_supervisors WHERE user_id = ?");
             $stmt->execute([$this->lineId]);
             $supervisors = $stmt->fetchAll(PDO::FETCH_COLUMN);
-
             if (empty($supervisors)) {
                 replyTextMessage($this->event['replyToken'], "⚠️ 系統未設定您的主管，無法送出請假申請。");
                 return true; 
@@ -304,7 +303,7 @@ class LeaveFlowHandler {
 
         $requestGroupId = $this->generateUuid();
 
-        // 4. 存請假紀錄
+        // 4. 存檔
         $stmt = $this->db->prepare("
             INSERT INTO leave_requests (
                 request_group_id, user_id, user_name, leave_type, reason, start_at, end_at, status, created_at
@@ -315,7 +314,7 @@ class LeaveFlowHandler {
             $requestGroupId,
             $this->lineId,
             $userName,
-            $leaveType,
+            $leaveType, // 這裡可能已經被換成「補休」了
             $reason,
             $startDate . ' ' . $startTime,
             $endDate . ' ' . $endTime,
@@ -323,7 +322,7 @@ class LeaveFlowHandler {
         ]);
         $leaveId = $this->db->lastInsertId();
 
-        // 5. 寫入簽核關聯 (Boss 免簽)
+        // 5. 簽核關聯
         if (!$isBoss) {
             foreach ($supervisors as $supId) {
                 $stmt = $this->db->prepare("
@@ -336,11 +335,12 @@ class LeaveFlowHandler {
 
         // 6. 回覆訊息
         if ($isBoss) {
-            $msg = "您的請假申請已自動核准歸檔。\n" .
+            $msg = "✅ 您的請假申請已自動核准歸檔。\n" .
                    "📅 {$startDate} {$startTime} ~ {$endDate} {$endTime}\n" .
-                   "假別：{$leaveType}";
+                   "假別：{$leaveType}{$autoSwitchMsg}";
             replyTextMessage($this->event['replyToken'], $msg);
         } else {
+            // 產生轉傳訊息
             $requests = [[
                 "start_at"       => $startDate . ' ' . $startTime,
                 "end_at"         => $endDate . ' ' . $endTime,
@@ -348,19 +348,45 @@ class LeaveFlowHandler {
                 "start_time"     => $startTime,
                 "end_date"       => $endDate,
                 "end_time"       => $endTime,
-                "leave_type"     => $leaveType,
-                "reason"         => $reason,
+                "leave_type"     => $leaveType, // 顯示最終假別
+                "reason"         => $reason . $autoSwitchMsg, // 把提示加在原因或另外顯示
                 "name"           => $userName,
                 "supervisor_ids" => $supervisors
             ]];
 
             $messages = buildForwardMessage($requests, $requestGroupId);
+            
+            // 如果有自動切換，我們在回覆給使用者的第一則訊息前，多插一句提示
+            if (!empty($autoSwitchMsg)) {
+                $hintMsg = ["type" => "text", "text" => "💡 溫馨提醒：已優先扣除您的加班補休時數。"];
+                array_unshift($messages, $hintMsg);
+            }
+
             replyMessage($this->event['replyToken'], $messages);
         }
 
-        // 7. 清理 session
         $this->session->clear();
         return true;
+    }
+
+    /** 🔥 輔助：計算請假時數 (簡易版，扣除 12:00-13:00 午休) */
+    private function calculateHours($startStr, $endStr) {
+        $start = strtotime($startStr);
+        $end   = strtotime($endStr);
+        
+        // 基礎時數
+        $hours = ($end - $start) / 3600;
+
+        // 判斷是否跨越午休 (12:00 ~ 13:00)
+        // 簡單邏輯：如果開始時間在 12:00 前，且結束時間在 13:00 後，就扣 1 小時
+        $sTime = date("H:i", $start);
+        $eTime = date("H:i", $end);
+        
+        if ($sTime < "12:00" && $eTime > "13:00") {
+            $hours -= 1;
+        }
+
+        return max(0, $hours);
     }
 
 
