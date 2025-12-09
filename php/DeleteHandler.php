@@ -19,6 +19,7 @@ class DeleteHandler {
     }
 
     public function handle() {
+        // 1. 刪除請假
         if (strpos($this->userText, "/刪除請假") === 0) {
             $parts = explode(" ", $this->userText);
 
@@ -30,11 +31,27 @@ class DeleteHandler {
             }
             return true;
         }
+
+        // 2. 🔥【新增】刪除打卡
+        if (strpos($this->userText, "/刪除打卡") === 0) {
+            $parts = explode(" ", $this->userText);
+
+            if (count($parts) === 2) {
+                $uuid = $parts[1];
+                $this->handleDeleteAttendance($uuid);
+            } else {
+                replyTextMessage($this->replyToken, "❗請使用格式：/刪除打卡 [打卡編號]");
+            }
+            return true;
+        }
+
         return false;
     }
 
+    /**
+     * 刪除請假 (原有功能)
+     */
     private function handleDeleteRequest($requestGroupId) {
-        // 1. 查詢整組請假紀錄
         $stmt = $this->db->prepare("SELECT * FROM leave_requests WHERE request_group_id = ?");
         $stmt->execute([$requestGroupId]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -44,7 +61,6 @@ class DeleteHandler {
             return;
         }
 
-        // 2. 確認紀錄屬於本人
         foreach ($rows as $row) {
             if ($row['user_id'] !== $this->userId) {
                 replyTextMessage($this->replyToken, "⚠️ 你無權刪除此請假紀錄。");
@@ -52,7 +68,6 @@ class DeleteHandler {
             }
         }
 
-        // 3. 確認是否還有 pending
         $hasPending = false;
         foreach ($rows as $row) {
             if ($row['status'] === "pending") {
@@ -65,7 +80,6 @@ class DeleteHandler {
             return;
         }
 
-        // 4. 先刪除 leave_approvals（避免外鍵限制）
         $stmt = $this->db->prepare("
             DELETE FROM leave_approvals 
             WHERE request_id IN (
@@ -74,11 +88,10 @@ class DeleteHandler {
         ");
         $stmt->execute([$requestGroupId]);
 
-        // 5. 再刪除 leave_requests
         $stmt = $this->db->prepare("DELETE FROM leave_requests WHERE request_group_id = ?");
         $stmt->execute([$requestGroupId]);
 
-        // 6. 查詢使用者上次的範圍
+        // 嘗試重新載入列表
         $session  = new UserSession($this->userId);
         $startStr = $session->get("last_query_start");
         $endStr   = $session->get("last_query_end");
@@ -86,32 +99,43 @@ class DeleteHandler {
         if ($startStr && $endStr) {
             $startDate = new DateTimeImmutable($startStr);
             $endDate   = new DateTimeImmutable($endStr);
-            
-            // ✅ 重用 LeaveQueryHandler，但先抓資料
             $queryHandler = new LeaveQueryHandler($this->userId, "", $this->replyToken);
-        
-            $stmt = $this->db->prepare("
-                SELECT request_group_id, start_at, end_at, leave_type, status
-                FROM leave_requests
-                WHERE user_id = ? AND start_at >= ? AND end_at <= ?
-                ORDER BY start_at DESC
-            ");
-            $stmt->execute([$this->userId, $startDate->format("Y-m-d 00:00:00"), $endDate->format("Y-m-d 23:59:59")]);
-            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            error_log("🗑️ DeleteHandler 呼叫 handleWithDateRange, start=" . $startDate->format("Y-m-d") . ", end=" . $endDate->format("Y-m-d"));
-
-            if ($rows) {
-                $queryHandler->handleWithDateRange(
-                    $startDate,
-                    $endDate,
-                    "🗑️ 請假紀錄已成功刪除。以下為最新紀錄："
-                );
-            } else {
-                replyTextMessage($this->replyToken, "🗑️ 請假紀錄已成功刪除，目前已無其他紀錄。");
-            }
+            $queryHandler->handleWithDateRange($startDate, $endDate, "請假紀錄已成功刪除。以下為最新紀錄：");
         } else {
-            replyTextMessage($this->replyToken, "🗑️ 請假紀錄已刪除");
+            replyTextMessage($this->replyToken, "請假紀錄已刪除");
         }
-        
+    }
+
+    /**
+     * 🔥【新增】刪除打卡
+     */
+    private function handleDeleteAttendance($uuid) {
+        // 1. 查詢紀錄
+        $stmt = $this->db->prepare("SELECT user_id, approval_status FROM attendance_logs WHERE attendance_uuid = ?");
+        $stmt->execute([$uuid]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$row) {
+            replyTextMessage($this->replyToken, "❌ 找不到該筆打卡紀錄。");
+            return;
+        }
+
+        // 2. 檢查權限
+        if ($row['user_id'] !== $this->userId) {
+            replyTextMessage($this->replyToken, "⚠️ 你無權刪除此紀錄。");
+            return;
+        }
+
+        // 3. 檢查狀態
+        if ($row['approval_status'] !== 'pending') {
+            replyTextMessage($this->replyToken, "❌ 只能刪除「待審核」的打卡紀錄。");
+            return;
+        }
+
+        // 4. 執行刪除
+        $delStmt = $this->db->prepare("DELETE FROM attendance_logs WHERE attendance_uuid = ?");
+        $delStmt->execute([$uuid]);
+
+        replyTextMessage($this->replyToken, "已成功刪除該筆打卡申請。");
     }
 }

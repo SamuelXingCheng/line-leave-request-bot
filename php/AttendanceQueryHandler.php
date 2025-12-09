@@ -20,7 +20,7 @@ class AttendanceQueryHandler {
     }
 
     public function handle() {
-        // 如果輸入了全域指令 → 清掉 step 並交給其他 Handler
+        // 如果輸入了全域指令，但不是"/查詢打卡"自己，才交給其他 Handler
         if (in_array($this->userText, getGlobalCommands()) && $this->userText !== "/查詢打卡") {
             $this->session->clearStep();
             return false; 
@@ -168,8 +168,8 @@ class AttendanceQueryHandler {
             $dt = new DateTimeImmutable($row['created_at']);
             $weekday = "週" . $weekdayMap[(int)$dt->format("w")];
     
-            // 組裝卡片
-            $contents["body"]["contents"][] = [
+            // 組裝卡片 Item
+            $item = [
                 "type" => "box",
                 "layout" => "vertical",
                 "margin" => "md",
@@ -184,9 +184,30 @@ class AttendanceQueryHandler {
                     ["type" => "text", "text" => "審核: " . $approvalText, "size" => "sm", "color" => $approvalColor],
                 ]
             ];
+
+            // 🔥【新增這段】如果是待審核 (pending)，加上刪除按鈕
+            if ($row['approval_status'] === "pending") {
+                $item["contents"][] = [
+                    "type" => "separator", 
+                    "margin" => "sm"
+                ];
+                $item["contents"][] = [
+                    "type" => "button",
+                    "style" => "secondary",
+                    "height" => "sm",
+                    "action" => [
+                        "type" => "message", 
+                        "label" => "🗑️ 刪除", 
+                        "text" => "/刪除打卡 " . $row['attendance_uuid']
+                    ],
+                    "margin" => "sm"
+                ];
+            }
+
+            // 加入到列表
+            $contents["body"]["contents"][] = $item;
         }
     
         return ["type" => "flex", "altText" => "📋 打卡紀錄", "contents" => $contents];
     }
-    
 }
