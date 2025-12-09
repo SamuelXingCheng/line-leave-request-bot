@@ -1,6 +1,7 @@
 <?php
 // MoreFeaturesHandler.php
 require_once __DIR__ . '/utils.php';
+require_once __DIR__ . '/config.php'; // 確保能讀取 .env
 
 class MoreFeaturesHandler {
     private $lineId;
@@ -17,11 +18,14 @@ class MoreFeaturesHandler {
         if ($this->text !== "/更多功能") {
             return false;
         }
-
+        
+        // 從環境變數讀取
+        $calendarLiffId = getenv('CALENDAR_LIFF_ID');
+        
+        // 🔥 這裡做了關鍵修改：使用進階格式定義 URI Action
         replyQuickReply($this->replyToken, "請選擇功能：", [
-            ["補打卡", "/補打卡"],
-            ["查詢同事", "/查詢同事"],
-            ["查詢打卡紀錄", "/查詢打卡"],
+            ["查詢同事", "/查詢同事"],  
+            ["查詢請假","/查詢請假"],        
             ["初次註冊", "/註冊"]
         ]);
 
