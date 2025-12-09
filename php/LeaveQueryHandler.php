@@ -21,9 +21,9 @@ class LeaveQueryHandler {
 
     public function handle() {
         // 如果輸入了全域指令 → 清掉 step 並交給其他 Handler
-        if (in_array($this->userText, getGlobalCommands())) {
+        if (in_array($this->userText, getGlobalCommands()) && $this->userText !== "/查詢請假") {
             $this->session->clearStep();
-            return false; // ❌ 不處理，交給其他 Handler
+            return false; 
         }
         
         // Step 1: 啟動查詢流程
