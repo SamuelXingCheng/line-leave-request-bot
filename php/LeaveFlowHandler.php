@@ -7,6 +7,7 @@ class LeaveFlowHandler {
     private $lineId;
     private $event;
     private $session;
+    private $db;
 
     public function __construct($lineId, $event, $db) {
         $this->lineId = $lineId;
@@ -16,10 +17,35 @@ class LeaveFlowHandler {
     }
 
     public function handle() {
+        // 1. 處理 Postback 事件 (日期與時間選擇器回傳)
+        if ($this->event['type'] === 'postback') {
+            $data = $this->event['postback']['data'];
+            parse_str($data, $params);
+
+            // 📅 選擇日期
+            if (isset($params['action']) && $params['action'] === 'select_leave_date') {
+                $selectedDate = $this->event['postback']['params']['date'];
+                return $this->handleLeaveDate($selectedDate);
+            }
+            // 🕒 選擇開始時間
+            if (isset($params['action']) && $params['action'] === 'select_start_time') {
+                $selectedTime = $this->event['postback']['params']['time'];
+                return $this->handleCustomStartTime($selectedTime);
+            }
+            // 🕒 選擇結束時間
+            if (isset($params['action']) && $params['action'] === 'select_end_time') {
+                $selectedTime = $this->event['postback']['params']['time'];
+                return $this->handleCustomEndTime($selectedTime);
+            }
+        }
+
+        // 2. 處理一般文字訊息
+        if (!isset($this->event['message']['text'])) {
+            return false;
+        }
         $userText = $this->event['message']['text'];
 
-        // 🔥【新增這段】檢查全域指令
-        // 注意：這裡不包含 "/請假" 本身，否則會自己卡自己，所以要排除
+        // 檢查全域指令 (排除 /請假 本身)
         if (in_array($userText, getGlobalCommands()) && $userText !== "/請假") {
             $this->session->clearStep();
             return false; 
@@ -33,8 +59,11 @@ class LeaveFlowHandler {
             return $this->handleLeaveDate($userText);
         } elseif ($step === "leave_time") {
             return $this->handleLeaveTime($userText);
-        } elseif ($step === "leave_custom_time") {
-            return $this->handleLeaveCustomTime($userText);
+        // 🔥 防止使用者不按按鈕直接打字，這兩步也要能接文字輸入
+        } elseif ($step === "leave_custom_start") {
+            return $this->handleCustomStartTime($userText);
+        } elseif ($step === "leave_custom_end") {
+            return $this->handleCustomEndTime($userText);
         } elseif ($step === "leave_type") {
             return $this->selectLeaveType($userText);
         }
@@ -56,6 +85,7 @@ class LeaveFlowHandler {
         $tomorrow = date("Y/m/d", strtotime("+1 day"));
         $dayAfter = date("Y/m/d", strtotime("+2 day"));
 
+        // 使用 datetimepicker 動作
         replyQuickReply(
             $this->event['replyToken'],
             "📅 請選擇請假日期或自訂輸入：",
@@ -63,8 +93,16 @@ class LeaveFlowHandler {
                 ["📆 今天 ($today)", $today],
                 ["📆 明天 ($tomorrow)", $tomorrow],
                 ["📆 後天 ($dayAfter)", $dayAfter],
-                ["✏️ 自訂日期", "自訂日期"],
-                ["❌ 取消請假", "/取消請假"]
+                [
+                    "type" => "action",
+                    "action" => [
+                        "type" => "datetimepicker",
+                        "label" => "✏️ 選擇日期",
+                        "data" => "action=select_leave_date",
+                        "mode" => "date"
+                    ]
+                ],
+                ["取消請假", "/取消請假"]
             ]
         );
         return true;
@@ -73,24 +111,29 @@ class LeaveFlowHandler {
     /** 第二步：處理請假日期 */
     private function handleLeaveDate($userText) {
         if ($userText === "自訂日期") {
-            replyTextMessage($this->event['replyToken'], "請輸入請假日期（例如：2025/09/06 或 2025/09/06-2025/09/07）：");
+            // 保留這個文字回應，防止使用者用舊的按鈕或手動打字
+            replyTextMessage($this->event['replyToken'], "請點擊上方按鈕選擇日期，或輸入格式：2025/09/06");
             return true;
         }
 
         // 判斷是否為區間
         if (strpos($userText, "-") !== false) {
             $parts = explode("-", $userText);
+            // DatePicker 回傳 YYYY-MM-DD
+            
             if (count($parts) === 2) {
+                // 這是區間輸入 (Start - End)
                 $startDate = trim($parts[0]);
                 $endDate   = trim($parts[1]);
                 $this->session->set("start_date", $startDate);
                 $this->session->set("end_date", $endDate);
             } else {
-                replyTextMessage($this->event['replyToken'], "❌ 日期格式錯誤，請輸入：2025/09/06-2025/09/07");
-                return true;
+                // 這是單日 (YYYY-MM-DD)
+                $this->session->set("start_date", $userText);
+                $this->session->set("end_date", $userText);
             }
         } else {
-            // 單日
+            // 單日 (YYYY/MM/DD)
             $this->session->set("start_date", $userText);
             $this->session->set("end_date", $userText);
         }
@@ -105,13 +148,13 @@ class LeaveFlowHandler {
                 ["上午", "上午"],
                 ["下午", "下午"],
                 ["自訂", "自訂時段"],
-                ["❌ 取消請假", "/取消請假"]
+                ["取消請假", "/取消請假"]
             ]
         );
         return true;
     }
 
-    /** 第三步：處理時段 */
+    /** 第三步：處理時段選擇 (若是自訂，則跳出 TimePicker) */
     private function handleLeaveTime($userText) {
         if ($userText === "整天") {
             $this->session->set("start_time", "08:30");
@@ -123,14 +166,32 @@ class LeaveFlowHandler {
             $this->session->set("start_time", "13:30");
             $this->session->set("end_time", "17:30");
         } elseif ($userText === "自訂時段") {
-            $this->session->setStep("leave_custom_time");
-            replyTextMessage($this->event['replyToken'], "請輸入時間範圍（格式：08:30-12:00）：");
+            // 🔥 改為設定步驟並彈出 TimePicker
+            $this->session->setStep("leave_custom_start");
+            
+            replyQuickReply(
+                $this->event['replyToken'],
+                "🕒 請選擇「開始」時間：",
+                [
+                    [
+                        "type" => "action",
+                        "action" => [
+                            "type" => "datetimepicker",
+                            "label" => "選擇開始時間",
+                            "data" => "action=select_start_time",
+                            "mode" => "time"
+                        ]
+                    ],
+                    ["取消", "/取消請假"]
+                ]
+            );
             return true;
         } else {
-            replyTextMessage($this->event['replyToken'], "❌ 請選擇有效的時段或輸入自訂時段。");
+            replyTextMessage($this->event['replyToken'], "請選擇有效的時段。");
             return true;
         }
 
+        // 如果不是自訂時段，直接跳下一步
         $this->session->setStep("leave_type");
         replyQuickReply(
             $this->event['replyToken'],
@@ -140,26 +201,54 @@ class LeaveFlowHandler {
         return true;
     }
 
-    /** 第四步：處理自訂時段 */
-    private function handleLeaveCustomTime($userText) {
-        if (strpos($userText, "-") !== false) {
-            $parts = explode("-", $userText);
-            if (count($parts) === 2) {
-                $start = trim($parts[0]);
-                $end   = trim($parts[1]);
-                $this->session->set("start_time", $start);
-                $this->session->set("end_time", $end);
-                $this->session->setStep("leave_type");
-
-                replyQuickReply(
-                    $this->event['replyToken'],
-                    "📝 請選擇請假類型：",
-                    $this->getLeaveTypes()
-                );
-                return true;
-            }
+    /** 🔥 新增：處理開始時間 */
+    private function handleCustomStartTime($time) {
+        // 簡單驗證時間格式 HH:mm
+        if (!preg_match("/^\d{2}:\d{2}$/", $time)) {
+             replyTextMessage($this->event['replyToken'], "時間格式錯誤，請重試 (例如 09:00)");
+             return true;
         }
-        replyTextMessage($this->event['replyToken'], "❌ 時間格式錯誤，請重新輸入：08:30-12:00");
+
+        $this->session->set("start_time", $time);
+        $this->session->setStep("leave_custom_end");
+
+        replyQuickReply(
+            $this->event['replyToken'],
+            "🕒 起始時間：{$time}\n請繼續選擇「結束」時間：",
+            [
+                [
+                    "type" => "action",
+                    "action" => [
+                        "type" => "datetimepicker",
+                        "label" => "選擇結束時間",
+                        "data" => "action=select_end_time",
+                        "mode" => "time"
+                    ]
+                ],
+                ["取消", "/取消請假"]
+            ]
+        );
+        return true;
+    }
+
+    /** 🔥 新增：處理結束時間 */
+    private function handleCustomEndTime($time) {
+        if (!preg_match("/^\d{2}:\d{2}$/", $time)) {
+             replyTextMessage($this->event['replyToken'], "時間格式錯誤，請重試 (例如 18:00)");
+             return true;
+        }
+
+        $this->session->set("end_time", $time);
+        
+        // 完成時間選擇，跳去選假別
+        $this->session->setStep("leave_type");
+
+        $start = $this->session->get("start_time");
+        replyQuickReply(
+            $this->event['replyToken'],
+            "⏰ 已設定時段：{$start} ~ {$time}\n\n📝 接下來，請選擇請假類型：",
+            $this->getLeaveTypes()
+        );
         return true;
     }
 
@@ -244,7 +333,7 @@ class LeaveFlowHandler {
 
         // 6. 回覆訊息
         if ($isBoss) {
-            $msg = "✅ 您的請假申請已自動核准歸檔。\n" .
+            $msg = "您的請假申請已自動核准歸檔。\n" .
                    "📅 {$startDate} {$startTime} ~ {$endDate} {$endTime}\n" .
                    "假別：{$leaveType}";
             replyTextMessage($this->event['replyToken'], $msg);
@@ -275,14 +364,14 @@ class LeaveFlowHandler {
     /** 假別 Quick Reply */
     private function getLeaveTypes() {
         return [
-            ["🌴 特休", "特休"],
-            ["📌 事假", "事假"],
-            ["🤒 病假", "病假"],
-            ["🏛️ 公假", "公假"],
-            ["💒 婚假", "婚假"],
-            ["🤰 產假", "產假"],
-            ["🖤 喪假", "喪假"],
-            ["❌ 取消請假", "/取消請假"]
+            ["特休", "特休"],
+            ["事假", "事假"],
+            ["病假", "病假"],
+            ["公假", "公假"],
+            ["婚假", "婚假"],
+            ["產假", "產假"],
+            ["喪假", "喪假"],
+            ["取消請假", "/取消請假"]
         ];
     }
 
@@ -296,5 +385,4 @@ class LeaveFlowHandler {
             mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff)
         );
     }
-
 }

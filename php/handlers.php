@@ -63,3 +63,22 @@ function handleMessage($event, $db) {
     // 5️⃣ 預設回覆
     replyTextMessage($replyToken, "❓ 未知指令，請點選選單或輸入 /更多功能");
 }
+
+/**
+ * 處理 Postback 事件 (例如日期選擇器)
+ */
+function handlePostback($event, $db) {
+    $userId = $event['source']['userId'];
+    $data   = $event['postback']['data'];
+
+    // 解析 action (例如 action=select_leave_date)
+    parse_str($data, $params);
+
+    // 請假流程相關 Action
+    $leaveActions = ['select_leave_date', 'select_start_time', 'select_end_time'];
+
+    if (isset($params['action']) && in_array($params['action'], $leaveActions)) {
+        $handler = new LeaveFlowHandler($userId, $event, $db);
+        $handler->handle(); // 讓 LeaveFlowHandler 自己去解析 postback 參數
+    }
+}

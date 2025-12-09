@@ -49,15 +49,23 @@ function replyTextMessage($replyToken, $text) {
 function replyQuickReply($replyToken, $text, $items) {
     $actions = [];
     foreach ($items as $item) {
-        $actions[] = [
-            "type" => "action",
-            "action" => [
-                "type" => "message",
-                "label" => $item[0],
-                "text" => $item[1]
-            ]
-        ];
+        // 🔥【修改這段】判斷是否為進階 Action 物件 (例如 datetimepicker)
+        if (isset($item['type']) && $item['type'] === 'action') {
+            // 如果已經是完整的 action 結構，直接使用
+            $actions[] = $item;
+        } else {
+            // 否則維持原本的簡易模式：[標籤, 回傳文字]
+            $actions[] = [
+                "type" => "action",
+                "action" => [
+                    "type" => "message",
+                    "label" => $item[0],
+                    "text" => $item[1]
+                ]
+            ];
+        }
     }
+
     $url = "https://api.line.me/v2/bot/message/reply";
     $headers = [
         "Content-Type: application/json",

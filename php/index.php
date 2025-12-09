@@ -39,6 +39,8 @@ $db = Database::getConnection();
 foreach ($events['events'] as $event) {
     if ($event['type'] === 'message' && $event['message']['type'] === 'text') {
         handleMessage($event, $db); // 集中處理
+    }elseif ($event['type'] === 'postback') {
+        handlePostback($event, $db);
     }
 }
 
