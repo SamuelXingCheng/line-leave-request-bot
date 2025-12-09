@@ -17,6 +17,15 @@ class LeaveFlowHandler {
     }
 
     public function handle() {
+
+        $userText = $this->event['message']['text'] ?? '';
+
+        // 🔥【修改這段】通用判斷：如果是指令 (以 / 開頭)，且不是 "/請假" 本身，就中斷流程
+        if (isCommand($userText) && $userText !== "/請假") {
+            $this->session->clearStep();
+            return false; 
+        }
+        
         // 1. 處理 Postback 事件 (日期與時間選擇器回傳)
         if ($this->event['type'] === 'postback') {
             $data = $this->event['postback']['data'];
@@ -365,13 +374,14 @@ class LeaveFlowHandler {
     private function getLeaveTypes() {
         return [
             ["特休", "特休"],
+            ["補休", "補休"], // 🔥 新增：補休選項
             ["事假", "事假"],
+            ["公差", "公差"], // 🔥 修改：公假 -> 公差
             ["病假", "病假"],
-            ["公假", "公假"],
             ["婚假", "婚假"],
             ["產假", "產假"],
             ["喪假", "喪假"],
-            ["取消請假", "/取消請假"]
+            ["❌ 取消請假", "/取消請假"]
         ];
     }
 

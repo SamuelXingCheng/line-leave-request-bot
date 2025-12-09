@@ -20,8 +20,7 @@ class LeaveQueryHandler {
     }
 
     public function handle() {
-        // 如果輸入了全域指令 → 清掉 step 並交給其他 Handler
-        if (in_array($this->userText, getGlobalCommands()) && $this->userText !== "/查詢請假") {
+        if (isCommand($this->userText) && $this->userText !== "/查詢請假") {
             $this->session->clearStep();
             return false; 
         }
@@ -61,19 +60,42 @@ class LeaveQueryHandler {
                     "type" => "box",
                     "layout" => "vertical",
                     "contents" => [
+                        // --- 特休區塊 ---
                         [
                             "type" => "text",
-                            "text" => "📊 特休統計（今年）",
+                            "text" => "📊 年度休假統計",
                             "weight" => "bold",
-                            "size" => "lg",
+                            "size" => "xl",
+                            "color" => "#1DB446",
                             "margin" => "md"
                         ],
                         ["type" => "separator", "margin" => "md"],
-                        ["type" => "text", "text" => "應得：" . formatHoursAndDays($stats['entitledAnnual']), "size" => "sm"],
+                        [
+                            "type" => "text", 
+                            "text" => "🌴 特休假", 
+                            "weight" => "bold", 
+                            "size" => "md", 
+                            "margin" => "md"
+                        ],
+                        ["type" => "text", "text" => "應得：" . formatHoursAndDays($stats['entitledAnnual']), "size" => "sm", "margin" => "sm"],
                         ["type" => "text", "text" => "已用：" . formatHoursAndDays($stats['usedAnnual']), "size" => "sm", "color" => "#CC0000"],
-                        ["type" => "text", "text" => "剩餘：" . formatHoursAndDays($stats['remainingAnnual']), "size" => "sm", "color" => "#228B22"],
-                        ["type" => "separator", "margin" => "md"],
-                        ["type" => "text", "text" => "📅 特休紀錄", "weight" => "bold", "size" => "md", "margin" => "md"]
+                        ["type" => "text", "text" => "剩餘：" . formatHoursAndDays($stats['remainingAnnual']), "size" => "sm", "color" => "#228B22", "weight" => "bold"],
+                        
+                        // --- 🔥 補休區塊 ---
+                        ["type" => "separator", "margin" => "lg"],
+                        [
+                            "type" => "text", 
+                            "text" => "💤 加班補休", 
+                            "weight" => "bold", 
+                            "size" => "md", 
+                            "margin" => "md"
+                        ],
+                        ["type" => "text", "text" => "累積：" . formatHoursAndDays($stats['earnedComp']), "size" => "sm", "margin" => "sm"],
+                        ["type" => "text", "text" => "已休：" . formatHoursAndDays($stats['usedComp']), "size" => "sm", "color" => "#CC0000"],
+                        ["type" => "text", "text" => "可休：" . formatHoursAndDays($stats['remainingComp']), "size" => "sm", "color" => "#228B22", "weight" => "bold"],
+
+                        ["type" => "separator", "margin" => "lg"],
+                        ["type" => "text", "text" => "📅 特休明細 (今年)", "weight" => "bold", "size" => "md", "margin" => "md"]
                     ]
                 ]
             ];

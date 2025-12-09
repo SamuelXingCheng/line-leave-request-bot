@@ -26,6 +26,12 @@ class CorrectionHandler {
     }
 
     public function handle() {
+
+        if (isCommand($this->userText) && $this->userText !== "/補打卡") {
+            $this->session->clearStep(); 
+            return false; 
+        }
+        
         // 1. 優先處理 Postback (日期/時間選擇器)
         if ($this->event['type'] === 'postback') {
             $data = $this->event['postback']['data'];

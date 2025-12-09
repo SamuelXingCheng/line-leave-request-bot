@@ -20,8 +20,7 @@ class AttendanceQueryHandler {
     }
 
     public function handle() {
-        // 如果輸入了全域指令，但不是"/查詢打卡"自己，才交給其他 Handler
-        if (in_array($this->userText, getGlobalCommands()) && $this->userText !== "/查詢打卡") {
+        if (isCommand($this->userText) && $this->userText !== "/查詢打卡") {
             $this->session->clearStep();
             return false; 
         }

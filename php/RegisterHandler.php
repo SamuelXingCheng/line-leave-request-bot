@@ -22,9 +22,9 @@ class RegisterHandler {
     public function handle() {
         $state = $this->session->get("state");
         
-        // 🔥【新增這段】檢查全域指令
-        if (in_array($this->userText, getGlobalCommands()) && $this->userText !== "/註冊") {
-            $this->session->reset(); // 註冊被中斷通常需要 reset
+        // 🔥【修改這段】通用判斷：如果是指令，且不是 "/註冊" 本身，就中斷
+        if (isCommand($this->userText) && $this->userText !== "/註冊") {
+            $this->session->reset();
             return false;
         }
         

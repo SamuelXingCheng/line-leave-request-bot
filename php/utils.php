@@ -210,22 +210,27 @@ function formatHoursAndDays($hours) {
     return $hours . " 小時（約 " . round($days, 1) . " 天）";
 }
 
+/**
+ * 取得請假統計 (含特休與補休)
+ */
 function getLeaveSummary($userId) {
     $pdo = Database::getConnection();
 
-    // 1. 查 hire_date
+    // ===========================
+    // 1. 特休計算 (原有邏輯)
+    // ===========================
     $stmt = $pdo->prepare("SELECT start_date FROM users WHERE user_id = ?");
     $stmt->execute([$userId]);
     $hireDate = $stmt->fetchColumn();
 
-    // 2. 計算應得特休（轉小時）
     $entitledHours = 0;
     if ($hireDate) {
         $entitledDays = calculateAnnualLeaveDays($hireDate);
         $entitledHours = $entitledDays * 8;
     }
 
-    // 3. 統計今年各假別已用時數（⭐ 扣掉中午 12:00–13:00）
+    // 統計「已核准」的請假時數 (扣除午休)
+    // 這裡我們一次撈出所有假別的總和
     $stmt = $pdo->prepare("
         SELECT leave_type,
                COALESCE(SUM(
@@ -241,41 +246,61 @@ function getLeaveSummary($userId) {
         GROUP BY leave_type
     ");
     $stmt->execute([$userId]);
-    $rows = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+    $leaveUsage = $stmt->fetchAll(PDO::FETCH_KEY_PAIR); // ['特休'=>16, '補休'=>4, ...]
 
-    $summary = [];
-    foreach ($rows as $type => $hours) {
-        $summary[$type] = (int)$hours;  // leave_type = 特休/病假/事假
-    }
-
-    // 4. 查今年特休紀錄（也要扣午休，避免顯示錯誤）
+    // 特休計算
+    $usedAnnual = $leaveUsage['特休'] ?? 0;
+    $remainingAnnual = max(0, $entitledHours - $usedAnnual);
+    
+    // 特休明細 (原有邏輯)
     $stmt = $pdo->prepare("
-        SELECT start_at, end_at, reason, status,
-               (TIMESTAMPDIFF(HOUR, start_at, end_at)
-                - CASE
-                    WHEN TIME(start_at) < '12:00:00' AND TIME(end_at) > '13:00:00'
-                    THEN 1 ELSE 0
-                  END) as hours
+        SELECT start_at, end_at, reason, status
         FROM leave_requests
-        WHERE user_id = ?
-          AND leave_type = '特休'
-          AND status = 'approved'
+        WHERE user_id = ? AND leave_type = '特休' AND status = 'approved'
           AND YEAR(start_at) = YEAR(CURDATE())
         ORDER BY start_at ASC
     ");
     $stmt->execute([$userId]);
     $annualDetails = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // 5. 計算剩餘
-    $usedAnnual = $summary['特休'] ?? 0;
-    $remainingAnnual = max(0, $entitledHours - $usedAnnual);
+    // ===========================
+    // 2. 🔥 補休計算 (新增邏輯)
+    // ===========================
+    
+    // A. 收入：已核准的加班時數
+    // 假設加班也要扣午休 (若加班跨越 12:00-13:00)
+    $stmt = $pdo->prepare("
+        SELECT COALESCE(SUM(
+                   TIMESTAMPDIFF(HOUR, start_at, end_at)
+                   - CASE
+                       WHEN TIME(start_at) < '12:00:00' AND TIME(end_at) > '13:00:00'
+                       THEN 1 ELSE 0
+                     END
+               ), 0)
+        FROM overtime_requests
+        WHERE user_id = ? AND status = 'approved'
+          AND YEAR(start_at) = YEAR(CURDATE()) -- 限制今年 (可選)
+    ");
+    $stmt->execute([$userId]);
+    $earnedComp = $stmt->fetchColumn(); // 存入的補休
+
+    // B. 支出：已核准的補休請假
+    $usedComp = $leaveUsage['補休'] ?? 0;
+
+    // C. 餘額
+    $remainingComp = max(0, $earnedComp - $usedComp);
 
     return [
-        "entitledAnnual" => $entitledHours,
-        "usedAnnual"     => $usedAnnual,
-        "remainingAnnual"=> $remainingAnnual,
-        "summary"        => $summary,       // 各假別 (特休/病假/事假...) 已用小時
-        "annualDetails"  => $annualDetails  // ⭐ 特休請假紀錄（含計算後時數）
+        "entitledAnnual"  => $entitledHours,
+        "usedAnnual"      => $usedAnnual,
+        "remainingAnnual" => $remainingAnnual,
+        
+        "earnedComp"      => $earnedComp,     // 🔥 加班總存入
+        "usedComp"        => $usedComp,       // 🔥 補休已用
+        "remainingComp"   => $remainingComp,  // 🔥 補休餘額
+        
+        "summary"         => $leaveUsage,
+        "annualDetails"   => $annualDetails
     ];
 }
 
@@ -294,6 +319,20 @@ function getGlobalCommands() {
         "/查詢同事",
         "/同意請假", // 簽核指令 (重要)
         "/審核打卡", // 簽核指令 (重要)
-        "/刪除請假"
+        "/刪除請假",
+        "/加班", 
+        "/同意加班"
     ];
+}
+
+/**
+ * 判斷字串是否為系統指令 (以 / 開頭)
+ */
+function isCommand($text) {
+    // 如果是空字串或不是字串，直接回傳 false
+    if (!is_string($text) || $text === '') {
+        return false;
+    }
+    // 檢查第一個字元是否為斜線
+    return strpos(trim($text), '/') === 0;
 }

@@ -12,6 +12,8 @@ require_once __DIR__ . '/AttendanceHandler.php';
 require_once __DIR__ . '/EmployeeQueryHandler.php';
 require_once __DIR__ . '/MoreFeaturesHandler.php';
 require_once __DIR__ . '/AttendanceQueryHandler.php';
+require_once __DIR__ . '/OvertimeFlowHandler.php';
+require_once __DIR__ . '/OvertimeApprovalHandler.php';
 
 function handleMessage($event, $db) {
     $replyToken = $event['replyToken'];
@@ -61,8 +63,14 @@ function handleMessage($event, $db) {
     $attendanceQueryHandler = new AttendanceQueryHandler($userId, $text, $replyToken);
     if ($attendanceQueryHandler->handle()) return;
 
+    $overtimeFlowHandler = new OvertimeFlowHandler($userId, $event, $db);
+    if ($overtimeFlowHandler->handle()) return;
+
+    $overtimeApprovalHandler = new OvertimeApprovalHandler($userId, $text);
+    if ($overtimeApprovalHandler->handle($replyToken)) return;
+
     // 5️⃣ 預設回覆
-    replyTextMessage($replyToken, "❓ 未知指令，請點選選單或輸入 /更多功能");
+    replyTextMessage($replyToken, "未知指令，請點選選單或輸入 /更多功能");
 }
 
 /**
@@ -92,4 +100,13 @@ function handlePostback($event, $db) {
         $handler->handle();
         return;
     }
+
+    // 加班流程 Postback
+    $otActions = ['select_ot_date', 'select_ot_start', 'select_ot_end'];
+    if (in_array($action, $otActions)) {
+        $handler = new OvertimeFlowHandler($userId, $event, $db);
+        $handler->handle();
+        return;
+    }
+
 }
