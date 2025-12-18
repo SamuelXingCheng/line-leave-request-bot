@@ -2,7 +2,7 @@
 // attendance_api.php
 
 // 允許跨域請求
-header("Access-Control-Allow-Origin: https://www.citc.org.tw");
+header("Access-Control-Allow-Origin: https://citcnew.org.tw");
 header("Access-Control-Allow-Methods: POST, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type");
 
@@ -16,10 +16,24 @@ require_once __DIR__ . '/Db.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
-// 公司座標 & 半徑
-define("COMPANY_LAT", (float) getenv("COMPANY_LAT"));
-define("COMPANY_LNG", (float) getenv("COMPANY_LNG"));
+// --- 讀取環境變數 ---
+// 打卡點 1 (原有)
+$locations = [
+    [
+        'lat' => (float) getenv("COMPANY_LAT"),
+        'lng' => (float) getenv("COMPANY_LNG"),
+        'name' => '辦公室 A'
+    ],
+    // 打卡點 2 (新增，請在 .env 中設定 COMPANY_LAT_2 與 COMPANY_LNG_2)
+    [
+        'lat' => (float) getenv("COMPANY_LAT_2"),
+        'lng' => (float) getenv("COMPANY_LNG_2"),
+        'name' => '辦公室 B'
+    ]
+];
+
 define("ALLOWED_RADIUS", (float) getenv("ALLOWED_RADIUS"));
+define("OFFICE_QR_TOKEN", getenv("OFFICE_QR_TOKEN")); // 在 .env 設定一個秘密字串
 
 // 讀取 LIFF 傳來的 JSON
 $data = json_decode(file_get_contents("php://input"), true);
@@ -29,11 +43,12 @@ if (!$data) {
     exit;
 }
 
-$userId = $data['userId'] ?? null;
-$mode   = $data['mode'] ?? null;   // 上班 or 下班
-$lat    = isset($data['latitude']) ? floatval($data['latitude']) : null;
-$lng    = isset($data['longitude']) ? floatval($data['longitude']) : null;
-$reason = $data['reason'] ?? null;
+$userId  = $data['userId'] ?? null;
+$mode    = $data['mode'] ?? null;
+$lat     = isset($data['latitude']) ? floatval($data['latitude']) : null;
+$lng     = isset($data['longitude']) ? floatval($data['longitude']) : null;
+$reason  = $data['reason'] ?? null;
+$qrToken = $data['qr_token'] ?? null; // 接收來自前端掃描到的 Token
 
 if (!$userId || !$mode || !$lat || !$lng) {
     http_response_code(400);
@@ -43,8 +58,6 @@ if (!$userId || !$mode || !$lat || !$lng) {
 
 // DB 連線
 $db = Database::getConnection();
-
-// 產生 UUID（要先用）
 $uuid = $db->query("SELECT UUID()")->fetchColumn();
 
 // 撈出員工姓名
@@ -53,23 +66,45 @@ $stmt->execute([$userId]);
 $row = $stmt->fetch();
 $userName = $row ? $row['name'] : "未知使用者";
 
-// 計算距離
-$distance = calculateDistance($lat, $lng);
 $now = date("Y-m-d H:i:s");
+
+// --- 判定打卡是否合規 ---
+$is_in_range = false;
+$min_distance = 999999;
+
+// 1. 檢查 GPS 是否在任一辦公據點範圍內
+foreach ($locations as $loc) {
+    $d = calculateDistance($lat, $lng, $loc['lat'], $loc['lng']);
+    if ($d < $min_distance) $min_distance = $d;
+    if ($d <= ALLOWED_RADIUS) {
+        $is_in_range = true;
+        break; 
+    }
+}
+
+// 2. 檢查 QR Code Token 是否符合
+$is_qr_valid = (!empty(OFFICE_QR_TOKEN) && $qrToken === OFFICE_QR_TOKEN);
 
 $supervisors = [];
 $approvalUrl = null;
 
-if ($distance <= ALLOWED_RADIUS) {
+if ($is_in_range || $is_qr_valid) {
+    // 成功條件：在範圍內 OR 掃描了正確的 QR Code
     $status = "success";
     $approval = "normal";
-    $reason = null; 
-    $message = "✅ {$mode}打卡成功！時間：{$now}";
+    
+    if ($is_qr_valid) {
+        $reason = "辦公室 QR 掃描打卡 (位置補償)";
+        $message = "✅ {$mode}打卡成功！(已透過 QR Code 驗證地點)";
+    } else {
+        $message = "✅ {$mode}打卡成功！時間：{$now}";
+    }
 } else {
+    // 失敗條件：不在範圍內且 QR Token 錯誤
     $status = "fail";
     $approval = "pending";
 
-    // 查詢該員工的主管名單
+    // 查詢主管名單
     $stmt = $db->prepare("
         SELECT u.user_id, u.name 
         FROM user_supervisors us
@@ -79,16 +114,12 @@ if ($distance <= ALLOWED_RADIUS) {
     $stmt->execute([$userId]);
     $supervisors = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // 主管審核連結（改成官方帳號 URL scheme）
     $BOT_BASIC_ID = getenv("LINE_BOT_ID");
     $approvalCommand = "/審核打卡 {$uuid}";
     $approvalUrl = "https://line.me/R/oaMessage/@{$BOT_BASIC_ID}/?" . rawurlencode($approvalCommand);
 
-    // Google Maps 連結
     $mapUrl = "https://www.google.com/maps?q={$lat},{$lng}";
-
-    // 提示訊息（只給框1用）
-    $message = "⚠️ 不在公司範圍內（距離 " . intval($distance) . " 公尺），打卡狀態為【待審核】。";
+    $message = "⚠️ 不在辦公範圍內（最近距離 " . intval($min_distance) . " 公尺），打卡狀態為【待審核】。";
 }
 
 // 存進資料庫
@@ -99,46 +130,37 @@ try {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
     ");
     $stmt->execute([
-        $uuid,
-        $userId,
-        $mode,
-        $lat,
-        $lng,
-        intval($distance),
-        $status,
-        $reason,
-        $approval
+        $uuid, $userId, $mode, $lat, $lng, intval($min_distance), $status, $reason, $approval
     ]);
 } catch (Exception $e) {
-    echo json_encode([
-        "status" => "error",
-        "message" => "❌ 存取打卡紀錄失敗: " . $e->getMessage()
-    ]);
+    echo json_encode(["status" => "error", "message" => "❌ 存取打卡紀錄失敗: " . $e->getMessage()]);
     exit;
 }
 
-// 回傳給前端（乾淨結構）
+// 回傳結果
 echo json_encode([
     "status" => $status,
-    "message" => $message,             // 框1用
-    "employee_name" => $userName,      // 框3用
-    "attendance_time" => $now,         // 框3用
-    "reason" => $reason,               // 框3用
-    "distance" => intval($distance),
+    "message" => $message,
+    "employee_name" => $userName,
+    "attendance_time" => $now,
+    "reason" => $reason,
+    "distance" => intval($min_distance),
     "approval_status" => $approval,
     "attendance_uuid" => $uuid,
-    "approval_url" => $approvalUrl,    // 框3用（跳官方帳號 + 帶指令）
-    "map_url" => $mapUrl ?? null,      // 地圖連結
-    "supervisors" => $supervisors      // 框2用
+    "approval_url" => $approvalUrl,
+    "map_url" => $mapUrl ?? null,
+    "supervisors" => $supervisors
 ]);
 
-// --- 工具函式 ---
-function calculateDistance($lat, $lng) {
-    $R = 6371000; // 地球半徑（公尺）
-    $phi1 = deg2rad(COMPANY_LAT);
-    $phi2 = deg2rad($lat);
-    $dPhi = deg2rad($lat - COMPANY_LAT);
-    $dLambda = deg2rad($lng - COMPANY_LNG);
+/**
+ * 計算兩點座標距離 (公尺)
+ */
+function calculateDistance($lat1, $lng1, $lat2, $lng2) {
+    $R = 6371000; 
+    $phi1 = deg2rad($lat1);
+    $phi2 = deg2rad($lat2);
+    $dPhi = deg2rad($lat2 - $lat1);
+    $dLambda = deg2rad($lng2 - $lng1);
 
     $a = sin($dPhi/2)**2 + cos($phi1) * cos($phi2) * sin($dLambda/2)**2;
     $c = 2 * atan2(sqrt($a), sqrt(1-$a));
