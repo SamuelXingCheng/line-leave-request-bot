@@ -92,7 +92,13 @@ function handlePostback($event, $db) {
     $action = $params['action'] ?? '';
 
     // 1. 請假流程相關 Action
-    $leaveActions = ['select_leave_date', 'select_start_time', 'select_end_time'];
+    $leaveActions = [
+        'select_leave_date', 
+        'select_start_date', // 新增
+        'select_end_date',   // 新增
+        'select_start_time', 
+        'select_end_time'
+    ];
     if (in_array($action, $leaveActions)) {
         $handler = new LeaveFlowHandler($userId, $event, $db);
         $handler->handle(); // 讓 LeaveFlowHandler 自己去解析 postback 參數

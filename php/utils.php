@@ -30,7 +30,16 @@ function replyMessage($replyToken, $messageObjects) {
     error_log("📤 ReplyMessage result: " . $result);
 }
 
-
+/**
+ * 檢查某一天是否為國定假日或補班日
+ * 回傳: 'holiday' (放假), 'workday' (補班), 或 null (無特殊設定)
+ */
+function getHolidayType($dateStr) {
+    $pdo = Database::getConnection(); //
+    $stmt = $pdo->prepare("SELECT type FROM holidays WHERE date = ?");
+    $stmt->execute([$dateStr]);
+    return $stmt->fetchColumn(); 
+}
 
 // ---------- 已有的 ----------
 function replyTextMessage($replyToken, $text) {

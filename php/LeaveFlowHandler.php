@@ -19,33 +19,34 @@ class LeaveFlowHandler {
     public function handle() {
         $userText = $this->event['message']['text'] ?? '';
 
-        // 通用判斷：如果是指令 (以 / 開頭)，且不是 "/請假" 本身，就中斷流程
         if (isCommand($userText) && $userText !== "/請假") {
             $this->session->clearStep();
             return false; 
         }
         
-        // 1. 處理 Postback 事件
+        // 1. 處理 Postback (修正 Action 名稱對齊)
         if ($this->event['type'] === 'postback') {
             $data = $this->event['postback']['data'];
             parse_str($data, $params);
+            $action = $params['action'] ?? '';
+            $selectedDate = $this->event['postback']['params']['date'] ?? '';
+            $selectedTime = $this->event['postback']['params']['time'] ?? '';
 
-            if (isset($params['action'])) {
-                if ($params['action'] === 'select_leave_date') return $this->handleLeaveDate($this->event['postback']['params']['date']);
-                if ($params['action'] === 'select_start_time') return $this->handleCustomStartTime($this->event['postback']['params']['time']);
-                if ($params['action'] === 'select_end_time') return $this->handleCustomEndTime($this->event['postback']['params']['time']);
-            }
+            if ($action === 'select_start_date') return $this->handleLeaveStartDate($selectedDate);
+            if ($action === 'select_end_date') return $this->handleLeaveEndDate($selectedDate);
+            if ($action === 'select_start_time') return $this->handleCustomStartTime($selectedTime);
+            if ($action === 'select_end_time') return $this->handleCustomEndTime($selectedTime);
         }
-
-        // 2. 處理一般文字訊息
-        if (!isset($this->event['message']['text'])) return false;
 
         $step = $this->session->getStep();
 
+        // 2. 處理文字訊息路由 (新增 start_date 與 end_date 步驟)
         if ($userText === "/請假") {
             return $this->startLeaveFlow();
-        } elseif ($step === "leave_date") {
-            return $this->handleLeaveDate($userText);
+        } elseif ($step === "leave_start_date") {
+            return $this->handleLeaveStartDate($userText);
+        } elseif ($step === "leave_end_date") {
+            return $this->handleLeaveEndDate($userText);
         } elseif ($step === "leave_time") {
             return $this->handleLeaveTime($userText);
         } elseif ($step === "leave_custom_start") {
@@ -59,38 +60,65 @@ class LeaveFlowHandler {
         return false;
     }
 
-    /** 第一步：開始流程，選擇日期 */
+    /** 修改後的第一步：選擇開始日期 */
     private function startLeaveFlow() {
-        // 測試 DB 連線
-        $stmt = $this->db->query("SELECT NOW()");
-        $now = $stmt->fetchColumn();
-        error_log("✅ DB connected, current time: " . $now);
+        $this->session->reset(); //
+        $this->session->setStep("leave_start_date");
 
-        $this->session->reset();
-        $this->session->setStep("leave_date");
-
-        $today = date("Y/m/d");
-        $tomorrow = date("Y/m/d", strtotime("+1 day"));
-        $dayAfter = date("Y/m/d", strtotime("+2 day"));
-
-        // 使用 datetimepicker 動作
         replyQuickReply(
-            $this->event['replyToken'],
-            "📅 請選擇請假日期或自訂輸入：",
+            $this->event['replyToken'], //
+            "第一步：請選擇「開始」請假日期：",
             [
-                ["📆 今天 ($today)", $today],
-                ["📆 明天 ($tomorrow)", $tomorrow],
-                ["📆 後天 ($dayAfter)", $dayAfter],
                 [
                     "type" => "action",
                     "action" => [
                         "type" => "datetimepicker",
-                        "label" => "✏️ 選擇日期",
-                        "data" => "action=select_leave_date",
+                        "label" => "✏選擇開始日期",
+                        "data" => "action=select_start_date",
                         "mode" => "date"
                     ]
                 ],
                 ["取消請假", "/取消請假"]
+            ]
+        );
+        return true;
+    }
+
+    /** 處理開始日期並詢問結束日期 */
+    private function handleLeaveStartDate($userText) {
+        $this->session->set("start_date", $userText);
+        $this->session->setStep("leave_end_date");
+
+        replyQuickReply(
+            $this->event['replyToken'],
+            "📅 已選開始：$userText\n\n第二步：請選擇「結束」日期：",
+            [
+                ["同開始日期", $userText],
+                [
+                    "type" => "action",
+                    "action" => [
+                        "type" => "datetimepicker",
+                        "label" => "✏️ 選擇結束日期",
+                        "data" => "action=select_end_date",
+                        "mode" => "date"
+                    ]
+                ],
+                ["取消請假", "/取消請假"]
+            ]
+        );
+        return true;
+    }
+
+    /** 新增的步驟：處理結束日期選擇 */
+    private function handleLeaveEndDate($userText) {
+        $this->session->set("end_date", $userText); //
+        $this->session->setStep("leave_time");
+
+        replyQuickReply(
+            $this->event['replyToken'],
+            "已選區間：" . $this->session->get("start_date") . " ~ " . $userText . "\n請選擇請假時段：",
+            [
+                ["整天", "整天"], ["上午", "上午"], ["下午", "下午"], ["自訂", "自訂時段"], ["取消", "/取消請假"]
             ]
         );
         return true;
@@ -369,24 +397,67 @@ class LeaveFlowHandler {
         return true;
     }
 
-    /** 🔥 輔助：計算請假時數 (簡易版，扣除 12:00-13:00 午休) */
+    /** * 修改版：支援跨日計算，自動排除假日與週末，並扣除每日午休 
+     */
     private function calculateHours($startStr, $endStr) {
         $start = strtotime($startStr);
         $end   = strtotime($endStr);
-        
-        // 基礎時數
-        $hours = ($end - $start) / 3600;
 
-        // 判斷是否跨越午休 (12:00 ~ 13:00)
-        // 簡單邏輯：如果開始時間在 12:00 前，且結束時間在 13:00 後，就扣 1 小時
-        $sTime = date("H:i", $start);
-        $eTime = date("H:i", $end);
+        if ($end <= $start) return 0;
+
+        $totalHours = 0;
         
-        if ($sTime < "12:00" && $eTime > "13:00") {
-            $hours -= 1;
+        // 設定標準工作與午休時間
+        $workStartHour = "08:30";
+        $workEndHour   = "17:30";
+        $lunchStart    = "12:00";
+        $lunchEnd      = "13:00";
+
+        $currDate = new DateTime(date('Y-m-d', $start));
+        $endDate  = new DateTime(date('Y-m-d', $end));
+        
+        while ($currDate <= $endDate) {
+            $dateString = $currDate->format('Y-m-d');
+            
+            // 判斷當天是否為工作日
+            $dayOfWeek = (int)$currDate->format('N'); // 1(一) ~ 7(日)
+            $specialType = getHolidayType($dateString); // 呼叫 utils.php 函式
+
+            $isWorkDay = true;
+            if ($specialType === 'holiday') {
+                $isWorkDay = false;
+            } elseif ($specialType === 'workday') {
+                $isWorkDay = true;
+            } else {
+                if ($dayOfWeek >= 6) $isWorkDay = false; // 一般週末
+            }
+
+            if (!$isWorkDay) {
+                $currDate->modify('+1 day');
+                continue;
+            }
+
+            // 決定當天計算區間
+            $s = ($dateString === date('Y-m-d', $start)) ? date('H:i', $start) : $workStartHour;
+            $e = ($dateString === date('Y-m-d', $end)) ? date('H:i', $end) : $workEndHour;
+
+            // 限制在上班時間內
+            if ($s < $workStartHour) $s = $workStartHour;
+            if ($e > $workEndHour)   $e = $workEndHour;
+
+            if ($e > $s) {
+                $daySeconds = strtotime("$dateString $e") - strtotime("$dateString $s");
+                $dayHours = $daySeconds / 3600;
+
+                // 扣除午休 (12:00~13:00)
+                if ($s < $lunchStart && $e > $lunchEnd) {
+                    $dayHours -= 1;
+                }
+                $totalHours += $dayHours;
+            }
+            $currDate->modify('+1 day');
         }
-
-        return max(0, $hours);
+        return max(0, $totalHours);
     }
 
 
