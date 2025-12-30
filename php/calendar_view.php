@@ -50,46 +50,57 @@ if (!$liffId) { die("錯誤：請在 .env 檔案中設定 CALENDAR_LIFF_ID"); }
         .week-row { margin-bottom: 8px; }
         .week-day { font-size: 0.8rem; color: #B0B0B0; font-weight: 600; }
         
-        /* 🔥 1. 底層容器：設定為相對定位，但不使用 flex 置中，避免干擾絕對定位 */
         .day-cell {
-            min-height: 75px; /* 加高高度 */
+            min-height: 75px;
             border-radius: 8px; margin: 2px; 
-            position: relative; /* 關鍵：讓內部的絕對定位以我為基準 */
+            position: relative; 
             background-color: #fff;
             cursor: pointer;
         }
+
+        /* 🔥 新增：週末背景色 */
+        .day-cell.weekend { background-color: #F2F2F2; }
+        
         .day-cell.today { background-color: #E3F2FD; font-weight: bold; border: 1px solid #90CAF9; }
         .day-cell.active { border: 2px solid var(--primary-color); }
         
-        /* 🔥 2. 數字層：獨立出來，強制靠右上 */
+        /* 🔥 修改：國定假日 cell 的數字層顏色 */
+        .day-cell.holiday-cell .day-number-layer { color: #E74C3C; }
+
         .day-number-layer {
             position: absolute;
             top: 4px;
             right: 6px;
-            font-size: 1.4rem; /* 字體加大 */
-            font-weight: 800;  /* 加粗 */
+            font-size: 1.4rem;
+            font-weight: 800;
             color: #333;
             line-height: 1;
-            z-index: 10;       /* 確保浮在最上面 */
+            z-index: 10;
         }
 
-        /* 🔥 3. 內容層：放置圓點，沉在底部 */
+        /* 🔥 新增：節日名稱小標籤 */
+        .holiday-label {
+            font-size: 0.6rem;
+            color: #E74C3C;
+            position: absolute;
+            top: 22px;
+            right: 6px;
+            font-weight: bold;
+            z-index: 11;
+        }
+
         .day-content-layer {
             position: absolute;
-            bottom: 6px;       /* 靠底 */
-            left: 0; right: 0; /* 左右撐開 */
+            bottom: 6px;
+            left: 0; right: 0;
             display: flex;
             flex-direction: column;
-            align-items: center; /* 內容水平置中 */
+            align-items: center;
             gap: 2px;
         }
         
-        /* 雙圓並列容器 */
-        .indicators-row {
-            display: flex; gap: 4px; 
-        }
+        .indicators-row { display: flex; gap: 4px; }
 
-        /* 分割圓形 */
         .split-circle {
             width: 12px; height: 12px;
             display: flex; flex-direction: column;
@@ -99,10 +110,8 @@ if (!$liffId) { die("錯誤：請在 .env 檔案中設定 CALENDAR_LIFF_ID"); }
             flex-shrink: 0;
         }
         .split-circle.empty { background-color: transparent; }
-
         .half { width: 100%; height: 50%; }
         
-        /* 顏色定義 */
         .bg-green { background-color: #2ECC71; } 
         .bg-orange { background-color: #F1C40F; } 
         .bg-blue { background-color: #3498DB; }   
@@ -114,7 +123,6 @@ if (!$liffId) { die("錯誤：請在 .env 檔案中設定 CALENDAR_LIFF_ID"); }
             background-color: #9B59B6;
         }
 
-        /* 圖例 */
         .legend { 
             display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; 
             margin-top: 15px; padding-top: 10px; border-top: 1px solid #f0f0f0;
@@ -234,7 +242,6 @@ if (!$liffId) { die("錯誤：請在 .env 檔案中設定 CALENDAR_LIFF_ID"); }
 
         try {
             if (!userLineId) throw new Error("等待使用者登入...");
-            // 🔥 加入時間戳記避免快取
             const apiUrl = `get_calendar_data.php?userId=${userLineId}&year=${year}&month=${month}&t=${Date.now()}`;
             const res = await fetch(apiUrl);
             let json;
@@ -254,9 +261,20 @@ if (!$liffId) { die("錯誤：請在 .env 檔案中設定 CALENDAR_LIFF_ID"); }
         for (let i = 0; i < firstDay; i++) grid.innerHTML += `<div></div>`;
 
         for (let day = 1; day <= daysInMonth; day++) {
+            const dateObj = new Date(year, month - 1, day);
+            const dayOfWeek = dateObj.getDay(); // 0(日) ~ 6(六)
             const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
             const events = currentEventData[dateStr] || [];
             
+            // 🔥 判斷是否為國定假日或補班日
+            const holidayInfo = events.find(e => e.type === 'holiday_info');
+            const isHoliday = holidayInfo && holidayInfo.holiday_type === 'holiday';
+            const isWorkday = holidayInfo && holidayInfo.holiday_type === 'workday';
+
+            // 🔥 判斷週末樣式
+            let weekendClass = (dayOfWeek === 0 || dayOfWeek === 6) ? 'weekend' : '';
+            if (isWorkday) weekendClass = ''; // 補班日恢復一般樣式
+
             let workState = { up: 'bg-none', down: 'bg-none' };
             let leaveState = { up: 'bg-none', down: 'bg-none' };
             let hasOvertime = false;
@@ -289,12 +307,15 @@ if (!$liffId) { die("錯誤：請在 .env 檔案中設定 CALENDAR_LIFF_ID"); }
 
             const isToday = (year === today.getFullYear() && (month - 1) === today.getMonth() && day === today.getDate());
             
+            const holidayLabel = isHoliday ? `<div class="holiday-label">${holidayInfo.desc}</div>` : '';
+            const holidayClass = isHoliday ? 'holiday-cell' : '';
+
             const cell = document.createElement('div');
-            cell.className = `day-cell ${isToday ? 'today' : ''}`;
+            cell.className = `day-cell ${isToday ? 'today' : ''} ${weekendClass} ${holidayClass}`;
             
-            // 🔥 重構 HTML：數字層 與 內容層 完全分開
             cell.innerHTML = `
                 <div class="day-number-layer">${day}</div>
+                ${holidayLabel}
                 <div class="day-content-layer">
                     <div class="indicators-row">
                         <div class="split-circle ${leftCircleClass}">${leftCircleHtml}</div>
@@ -317,7 +338,10 @@ if (!$liffId) { die("錯誤：請在 .env 檔案中設定 CALENDAR_LIFF_ID"); }
         document.getElementById('detailsDate').innerText = `${dateStr} 詳細紀錄`;
         content.innerHTML = '';
 
-        if (events.length === 0) {
+        // 排除掉僅用於前端顯示的 holiday_info
+        const displayEvents = events.filter(e => e.type !== 'holiday_info');
+
+        if (displayEvents.length === 0) {
             content.innerHTML = '<div style="color:#999; text-align:center; padding:20px;">本日無紀錄</div>';
         } else {
             const typeMap = { 'attendance': '打卡', 'leave': '請假', 'overtime': '加班' };
@@ -326,7 +350,7 @@ if (!$liffId) { die("錯誤：請在 .env 檔案中設定 CALENDAR_LIFF_ID"); }
                 'orange': '補打卡', 'blue': '請假', 'purple': '加班'
             };
 
-            events.forEach(evt => {
+            displayEvents.forEach(evt => {
                 let desc = evt.desc ? ` (${evt.desc})` : '';
                 let typeName = typeMap[evt.type] || evt.type;
                 let statusText = statusMap[evt.color] || '正常';

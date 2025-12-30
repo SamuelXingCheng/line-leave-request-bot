@@ -42,13 +42,12 @@ try {
         $mode = $row['mode']; 
         $timeStr = date('H:i', strtotime($row['created_at']));
 
-        // 🔥 顏色邏輯：上下班都統一為綠色
         if ($row['status'] === 'fail' || $row['approval_status'] === 'pending') {
             $color = 'red';
         } elseif ($isCorrection) {
             $color = 'orange';
         } else {
-            $color = 'green'; // 上班、下班都使用 green
+            $color = 'green';
         }
 
         $events[$date][] = [
@@ -105,6 +104,24 @@ try {
             'color' => 'purple', 
             'desc' => '加班',
             'time_info' => "$sTime ~ $eTime"
+        ];
+    }
+
+    // 🔥 4. 新增：國定假日與補班日 (Holidays)
+    $stmt = $db->prepare("
+        SELECT date, name, type FROM holidays 
+        WHERE date BETWEEN ? AND ?
+    ");
+    $stmt->execute([$startDate, $endDate]);
+    $holidays = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($holidays as $row) {
+        $date = $row['date'];
+        $events[$date][] = [
+            'type' => 'holiday_info', 
+            'color' => ($row['type'] === 'holiday' ? 'pink' : 'gray'), 
+            'desc' => $row['name'],
+            'holiday_type' => $row['type']
         ];
     }
 
