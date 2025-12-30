@@ -2,6 +2,26 @@
 // utils.php
 require_once __DIR__ . '/Db.php';  // ✅ 注意大小寫，與你的 Database class 一致
 
+function pushMessage($to, $messageObjects) {
+    $url = 'https://api.line.me/v2/bot/message/push';
+    $headers = [
+        'Content-Type: application/json',
+        "Authorization: Bearer " . getenv("LINE_CHANNEL_ACCESS_TOKEN")
+    ];
+
+    // 確保是陣列
+    if (isset($messageObjects['type'])) {
+        $messageObjects = [$messageObjects];
+    }
+
+    $data = [
+        'to' => $to,
+        'messages' => $messageObjects
+    ];
+
+    return callLineAPI($url, $headers, $data);
+}
+
 function replyMessage($replyToken, $messageObjects) {
     $url = 'https://api.line.me/v2/bot/message/reply';
     $headers = [
@@ -158,9 +178,9 @@ function buildForwardMessage(array $requests, string $requestGroupId): array {
     $forwardMsg = [
         "type" => "text",
         "text" =>
-            "👤 員工：{$userName}\n" .
-            "📋 假別：{$leaveType}\n" .
-            "📝 原因：{$reason}\n\n" .
+            "員工：{$userName}\n" .
+            "假別：{$leaveType}\n" .
+            "原因：{$reason}\n\n" .
             "以下時間需要請假：\n" .
             $dateLinesStr .
             "\n\n👉 點擊以下連結，系統將自動填入「/同意請假」指令，請直接送出即可完成簽核：\n" .
