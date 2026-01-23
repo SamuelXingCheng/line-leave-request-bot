@@ -389,3 +389,56 @@ function isCommand($text) {
     // 檢查第一個字元是否為斜線
     return strpos(trim($text), '/') === 0;
 }
+
+/**
+ * 核心邏輯：根據使用者輸入的起訖日期，列出「真正需要扣假」的日子
+ * 邏輯：只要資料庫 holidays 表格裡有的日期，一律跳過
+ */
+function getActualLeaveDays($startStr, $endStr) {
+    $start = new DateTime($startStr);
+    $end   = new DateTime($endStr);
+    
+    // 防呆：結束時間不能早於開始時間
+    if ($start > $end) return [];
+
+    $result = [];
+    $current = clone $start;
+
+    // 迴圈跑每一天
+    while ($current->format('Y-m-d') <= $end->format('Y-m-d')) {
+        $dateStr = $current->format('Y-m-d');
+        
+        // 1. 查詢 DB: 今天是不是假日？
+        $holidayType = getHolidayType($dateStr); 
+
+        // 2. 判斷邏輯
+        $isDayOff = false;
+
+        // 如果資料庫有資料，且 type 是 holiday，那就是放假
+        if ($holidayType === 'holiday') {
+            $isDayOff = true;
+        } 
+        // 💡 安全網：如果您的資料庫「漏填」了某個週六日，這裡補救一下
+        // 如果 DB 沒資料 (null)，但它是週六(6) 或 週日(7)，也當作放假
+        elseif ($holidayType === null) {
+            $weekDay = (int)$current->format('N');
+            if ($weekDay >= 6) {
+                $isDayOff = true;
+            }
+        }
+
+        // 3. 只有「不是放假日」才加入清單
+        if (!$isDayOff) {
+            // 計算當天的時間顯示 (頭尾兩天要顯示具體時間，中間的天數顯示 09:00-18:00)
+            $dayStart = ($dateStr === $start->format('Y-m-d')) ? $start->format('H:i') : "09:00";
+            $dayEnd   = ($dateStr === $end->format('Y-m-d'))   ? $end->format('H:i') : "18:00";
+
+            $result[] = "📅 $dateStr ($dayStart ~ $dayEnd)";
+        }
+
+        // 往後推一天
+        $current->modify('+1 day');
+    }
+
+    return $result;
+}

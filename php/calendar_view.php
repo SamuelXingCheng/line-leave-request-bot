@@ -266,14 +266,22 @@ if (!$liffId) { die("錯誤：請在 .env 檔案中設定 CALENDAR_LIFF_ID"); }
             const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
             const events = currentEventData[dateStr] || [];
             
-            // 🔥 判斷是否為國定假日或補班日
+            // 🔥 1. 定義假日與補班日
             const holidayInfo = events.find(e => e.type === 'holiday_info');
             const isHoliday = holidayInfo && holidayInfo.holiday_type === 'holiday';
             const isWorkday = holidayInfo && holidayInfo.holiday_type === 'workday';
 
-            // 🔥 判斷週末樣式
-            let weekendClass = (dayOfWeek === 0 || dayOfWeek === 6) ? 'weekend' : '';
-            if (isWorkday) weekendClass = ''; // 補班日恢復一般樣式
+            // 🔥 2. 定義「休息日」(Rest Day)
+            // 預設：週六(6) 或 週日(0) 是休息日
+            let isRestDay = (dayOfWeek === 0 || dayOfWeek === 6);
+            
+            // 修正：如果是國定假日 -> 強制休息
+            if (isHoliday) isRestDay = true;
+            // 修正：如果是補班日 -> 強制上班 (即使是週六)
+            if (isWorkday) isRestDay = false;
+
+            // 設定週末背景色 (這部分您原本就有)
+            let weekendClass = isRestDay ? 'weekend' : ''; 
 
             let workState = { up: 'bg-none', down: 'bg-none' };
             let leaveState = { up: 'bg-none', down: 'bg-none' };
@@ -285,11 +293,16 @@ if (!$liffId) { die("錯誤：請在 .env 檔案中設定 CALENDAR_LIFF_ID"); }
                     if (evt.desc === '上班') workState.up = colorClass;
                     else if (evt.desc === '下班') workState.down = colorClass;
                 }
+                
                 if (evt.type === 'leave') {
-                    if (evt.period === 'am') leaveState.up = 'bg-blue';
-                    else if (evt.period === 'pm') leaveState.down = 'bg-blue';
-                    else { leaveState.up = 'bg-blue'; leaveState.down = 'bg-blue'; }
+                    // 🔥 3. 關鍵修改：只有「非休息日」才畫藍點
+                    if (!isRestDay) {
+                        if (evt.period === 'am') leaveState.up = 'bg-blue';
+                        else if (evt.period === 'pm') leaveState.down = 'bg-blue';
+                        else { leaveState.up = 'bg-blue'; leaveState.down = 'bg-blue'; }
+                    }
                 }
+                
                 if (evt.type === 'overtime') hasOvertime = true;
             });
 

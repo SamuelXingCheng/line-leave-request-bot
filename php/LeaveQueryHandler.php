@@ -98,8 +98,15 @@ class LeaveQueryHandler {
                 foreach ($stats['allDetails'] as $row) {
                     if ($count >= 10) break; // ✅ 這裡控制了長度，避免年底太長
                     
-                    $startStr = substr($row['start_at'], 5, 11);
-                    $endStr   = substr($row['end_at'], 11, 5);
+                    // 🔥 呼叫 utils.php 的函式，取得展開後的日期列表 (會自動扣除 holiday)
+                    $actualDays = getActualLeaveDays($row['start_at'], $row['end_at']);
+                    
+                    // 把陣列變成字串 (用換行符號連接)
+                    if (empty($actualDays)) {
+                        $dateText = "⚠️ 無需請假 (全為假日)";
+                    } else {
+                        $dateText = implode("\n", $actualDays);
+                    }
                     
                     $contents["body"]["contents"][] = [
                         "type" => "box",
@@ -108,10 +115,17 @@ class LeaveQueryHandler {
                         "contents" => [
                             [
                                 "type" => "text", 
-                                // ✅ 格式：【假別】 日期時間 (不顯示原因)
-                                "text" => "【{$row['leave_type']}】 {$startStr}~{$endStr}", 
+                                "text" => "【{$row['leave_type']}】", // 標題只放假別
+                                "weight" => "bold",
                                 "size" => "sm", 
-                                "color" => "#555555"
+                                "color" => "#333333"
+                            ],
+                            [
+                                "type" => "text", 
+                                "text" => $dateText, // 🔥 這裡放入展開後的日期
+                                "size" => "xs",      // 字體稍微縮小一點以免太佔版面
+                                "color" => "#666666",
+                                "wrap" => true       // ⚠️ 重要：要開啟換行功能
                             ]
                         ]
                     ];
@@ -247,13 +261,20 @@ class LeaveQueryHandler {
             $statusMap = ["pending" => ["尚未核准", "#999999"], "approved" => ["已通過", "#228B22"], "rejected" => ["已駁回", "#CC0000"]];
             [$statusText, $statusColor] = $statusMap[$row['status']] ?? [$row['status'], "#555555"];
             
-            $startStr = substr($row['start_at'], 5, 11);
-            $endStr   = substr($row['end_at'], 11, 5);
+            $actualDays = getActualLeaveDays($row['start_at'], $row['end_at']);
+            $dateText = empty($actualDays) ? "⚠️ 全為假日" : implode("\n", $actualDays);
 
             $item = [
                 "type" => "box", "layout" => "vertical", "margin" => "md", "spacing" => "sm",
                 "contents" => [
-                    ["type" => "text", "text" => sprintf("%s ~ %s", $startStr, $endStr), "wrap" => true, "size" => "sm", "color" => "#555555"],
+                    // 🔥 這裡改成顯示展開後的日期
+                    [
+                        "type" => "text", 
+                        "text" => $dateText, 
+                        "wrap" => true, // ⚠️ 重要：必須開啟換行
+                        "size" => "sm", 
+                        "color" => "#555555"
+                    ],
                     ["type" => "box", "layout" => "baseline", "spacing" => "sm", "contents" => [["type" => "text", "text" => $row['leave_type'], "size" => "sm", "color" => "#111111", "flex" => 2], ["type" => "text", "text" => "狀態: " . $statusText, "size" => "sm", "color" => $statusColor, "flex" => 3]]]
                 ]
             ];
