@@ -117,36 +117,52 @@ function replyQuickReply($replyToken, $text, $items) {
  * 呼叫 LINE API
  */
 function callLineAPI($url, $headers, $postData) {
-    $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($postData, JSON_UNESCAPED_UNICODE));
-    
-    // 🔥【修改 1】強制使用 IPv4 (解決虛擬主機 DNS 迷路問題)
-    curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+    // 🔥 設定重試次數 (抵抗網路瞬斷)
+    $maxRetries = 3;
+    $retryDelay = 1; // 失敗後休息 1 秒
 
-    // 🔥【修改 2】稍微放寬連線限制 (3秒 -> 5秒)
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5); 
-    curl_setopt($ch, CURLOPT_TIMEOUT, 10);        
-    
-    $start = microtime(true);
-    
-    $result = curl_exec($ch);
-    
-    $duration = round(microtime(true) - $start, 3);
-    error_log("📡 LINE API 耗時: {$duration} 秒");
-    
-    // 🔥【新增】把詳細錯誤原因印出來，下次我們就知道是 DNS 還是 SSL 問題
-    if (curl_errno($ch)) {
-        error_log("❌ cURL Error (" . curl_errno($ch) . "): " . curl_error($ch));
+    for ($i = 0; $i < $maxRetries; $i++) {
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($postData, JSON_UNESCAPED_UNICODE));
+        
+        // 🔥 強制 IPv4 (必備)
+        curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+
+        // 🔥 建議設定：連線 10秒 / 總執行 30秒
+        // 這樣可以避免 PHP 被系統強制殺掉，導致資料庫卡在 processing
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10); 
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);        
+        
+        $start = microtime(true);
+        $result = curl_exec($ch);
+        $duration = round(microtime(true) - $start, 3);
+        
+        $errno = curl_errno($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $errorMsg = curl_error($ch);
+        
+        curl_close($ch);
+
+        // 判斷成功 (HTTP 200 且無錯誤碼)
+        if ($errno === 0 && $httpCode === 200) {
+            error_log("📡 LINE API 成功 ({$duration}秒): " . substr($result, 0, 50) . "...");
+            return $result;
+        }
+
+        // 失敗記錄
+        error_log("⚠️ [第 " . ($i + 1) . " 次失敗] cURL Error ($errno): $errorMsg | HTTP: $httpCode | 耗時: {$duration}秒");
+        
+        // 如果還沒達到最大重試次數，就休息一下再試
+        if ($i < $maxRetries - 1) {
+            sleep($retryDelay);
+        }
     }
-    
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
 
-    error_log("📡 LINE API response ($httpCode): " . $result);
-    return $result;
+    error_log("❌ LINE API 徹底失敗 (已重試 {$maxRetries} 次)");
+    return false;
 }
 
 /**
