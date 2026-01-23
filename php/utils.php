@@ -122,7 +122,26 @@ function callLineAPI($url, $headers, $postData) {
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($postData, JSON_UNESCAPED_UNICODE));
+    
+    // 🔥【修改 1】強制使用 IPv4 (解決虛擬主機 DNS 迷路問題)
+    curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+
+    // 🔥【修改 2】稍微放寬連線限制 (3秒 -> 5秒)
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5); 
+    curl_setopt($ch, CURLOPT_TIMEOUT, 10);        
+    
+    $start = microtime(true);
+    
     $result = curl_exec($ch);
+    
+    $duration = round(microtime(true) - $start, 3);
+    error_log("📡 LINE API 耗時: {$duration} 秒");
+    
+    // 🔥【新增】把詳細錯誤原因印出來，下次我們就知道是 DNS 還是 SSL 問題
+    if (curl_errno($ch)) {
+        error_log("❌ cURL Error (" . curl_errno($ch) . "): " . curl_error($ch));
+    }
+    
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
 
