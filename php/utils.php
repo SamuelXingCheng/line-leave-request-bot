@@ -246,6 +246,81 @@ function buildForwardMessage(array $requests, string $requestGroupId): array {
     return $messages;
 }
 
+/**
+ * 核心時數計算：支援跨日、自動排除假日與週末、扣除午休
+ */
+function calculateHours($startStr, $endStr) {
+    $start = strtotime($startStr);
+    $end   = strtotime($endStr);
+    if ($end <= $start) return 0;
+
+    $totalHours = 0;
+    $workStartHour = "08:30";
+    $workEndHour   = "17:30";
+    $lunchStart    = "12:00";
+    $lunchEnd      = "13:00";
+
+    $currDate = new DateTime(date('Y-m-d', $start));
+    $endDate  = new DateTime(date('Y-m-d', $end));
+    
+    while ($currDate <= $endDate) {
+        $dateString = $currDate->format('Y-m-d');
+        $specialType = getHolidayType($dateString); // 呼叫已有的假日判斷
+
+        $isWorkDay = true;
+        if ($specialType === 'holiday') { $isWorkDay = false; }
+        elseif ($specialType === 'workday') { $isWorkDay = true; }
+        else {
+            $dayOfWeek = (int)$currDate->format('N');
+            if ($dayOfWeek >= 6) $isWorkDay = false;
+        }
+
+        if ($isWorkDay) {
+            $s = ($dateString === date('Y-m-d', $start)) ? date('H:i', $start) : $workStartHour;
+            $e = ($dateString === date('Y-m-d', $end)) ? date('H:i', $end) : $workEndHour;
+
+            if ($s < $workStartHour) $s = $workStartHour;
+            if ($e > $workEndHour)   $e = $workEndHour;
+
+            if ($e > $s) {
+                $daySeconds = strtotime("$dateString $e") - strtotime("$dateString $s");
+                $dayHours = $daySeconds / 3600;
+                // 扣除午休
+                if ($s < $lunchStart && $e > $lunchEnd) { $dayHours -= 1; }
+                $totalHours += $dayHours;
+            }
+        }
+        $currDate->modify('+1 day');
+    }
+    return max(0, $totalHours);
+}
+
+/**
+ * 加班時數計算：不排除假日，但仍建議扣除午休 (若加班跨越 12:00-13:00)
+ */
+function calculateOvertimeHours($startStr, $endStr) {
+    $start = strtotime($startStr);
+    $end   = strtotime($endStr);
+    if ($end <= $start) return 0;
+
+    $totalSeconds = $end - $start;
+    $totalHours = $totalSeconds / 3600;
+
+    // 選項：是否要扣除午休？ 
+    // 很多公司規定加班滿 4 小時要休息 0.5 或 1 小時。
+    // 這裡提供一個簡單判斷：如果加班時間跨越了 12:00-13:00，扣除 1 小時。
+    $sTime = date('H:i:s', $start);
+    $eTime = date('H:i:s', $end);
+    
+    // 如果加班起始在 12:00 前，且結束在 13:00 後，扣除一小時午休
+    if ($sTime < '12:00:00' && $eTime > '13:00:00') {
+        $totalHours -= 1;
+    }
+
+    // 格式化：保留一位小數
+    return max(0, round($totalHours, 1));
+}
+
 // 特休天數計算：根據年資計算特休天數
 function calculateAnnualLeaveDays($hireDate, $today = null) {
     if (!$today) $today = new DateTime();
@@ -277,12 +352,13 @@ function formatHoursAndDays($hours) {
 }
 
 /**
- * 取得請假統計 (含特休與補休，以及所有明細)
+ * 取得請假統計 (商務優化版：直接讀取預算時數欄位)
  */
 function getLeaveSummary($userId) {
     $pdo = Database::getConnection();
+    $currentYear = date('Y');
 
-    // 1. 特休計算
+    // 1. 取得員工入職日期並計算年假總額度
     $stmt = $pdo->prepare("SELECT start_date FROM users WHERE user_id = ?");
     $stmt->execute([$userId]);
     $hireDate = $stmt->fetchColumn();
@@ -290,59 +366,48 @@ function getLeaveSummary($userId) {
     $entitledHours = 0;
     if ($hireDate) {
         $entitledDays = calculateAnnualLeaveDays($hireDate);
-        $entitledHours = $entitledDays * 8;
+        $entitledHours = $entitledDays * 8; // 換算成總小時
     }
 
-    // 2. 統計各假別已用時數
+    // 2. 統計各假別已用時數 (🔥 改為直接加總 leave_hours)
+    // 這樣做最精準，且自動包含「銷假」修改後的結果
     $stmt = $pdo->prepare("
-        SELECT leave_type,
-               COALESCE(SUM(
-                   TIMESTAMPDIFF(HOUR, start_at, end_at)
-                   - CASE
-                       WHEN TIME(start_at) < '12:00:00' AND TIME(end_at) > '13:00:00'
-                       THEN 1 ELSE 0
-                     END
-               ), 0) as hours
+        SELECT leave_type, COALESCE(SUM(leave_hours), 0) as hours
         FROM leave_requests
-        WHERE user_id = ? AND status='approved'
-          AND YEAR(start_at) = YEAR(CURDATE())
+        WHERE user_id = ? AND status = 'approved'
+          AND YEAR(start_at) = ?
         GROUP BY leave_type
     ");
-    $stmt->execute([$userId]);
-    $leaveUsage = $stmt->fetchAll(PDO::FETCH_KEY_PAIR); // ['特休'=>16, '事假'=>8, ...]
+    $stmt->execute([$userId, $currentYear]);
+    $leaveUsage = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
 
-    // 特休
-    $usedAnnual = $leaveUsage['特休'] ?? 0;
+    // 特休數據
+    $usedAnnual = $leaveUsage['特休假'] ?? $leaveUsage['特休'] ?? 0;
     $remainingAnnual = max(0, $entitledHours - $usedAnnual);
 
-    // 3. 補休計算
+    // 3. 補休計算 (同樣建議 overtime_requests 也應具備 hours 欄位)
+    // 如果您的加班單還沒有 hours 欄位，請同步增加
     $stmt = $pdo->prepare("
-        SELECT COALESCE(SUM(
-                   TIMESTAMPDIFF(HOUR, start_at, end_at)
-                   - CASE
-                       WHEN TIME(start_at) < '12:00:00' AND TIME(end_at) > '13:00:00'
-                       THEN 1 ELSE 0
-                     END
-               ), 0)
+        SELECT COALESCE(SUM(hours), 0)
         FROM overtime_requests
         WHERE user_id = ? AND status = 'approved'
-          AND YEAR(start_at) = YEAR(CURDATE())
+          AND YEAR(start_at) = ?
     ");
-    $stmt->execute([$userId]);
+    $stmt->execute([$userId, $currentYear]);
     $earnedComp = $stmt->fetchColumn();
 
-    $usedComp = $leaveUsage['補休'] ?? 0;
+    $usedComp = $leaveUsage['補休假'] ?? $leaveUsage['補休'] ?? 0;
     $remainingComp = max(0, $earnedComp - $usedComp);
 
-    // 4. 🔥【修改】取得「所有假別」的請假明細 (不只特休)
+    // 4. 取得所有請假明細 (用於顯示最近的紀錄)
     $stmt = $pdo->prepare("
-        SELECT start_at, end_at, leave_type, reason, status
+        SELECT start_at, end_at, leave_type, reason, status, leave_hours
         FROM leave_requests
         WHERE user_id = ? AND status = 'approved'
-          AND YEAR(start_at) = YEAR(CURDATE())
+          AND YEAR(start_at) = ?
         ORDER BY start_at DESC 
     ");
-    $stmt->execute([$userId]);
+    $stmt->execute([$userId, $currentYear]);
     $allDetails = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     return [
@@ -354,8 +419,8 @@ function getLeaveSummary($userId) {
         "usedComp"        => $usedComp,
         "remainingComp"   => $remainingComp,
         
-        "summary"         => $leaveUsage, // 各假別統計
-        "allDetails"      => $allDetails  // 🔥 所有明細
+        "summary"         => $leaveUsage, // 各假別小時統計
+        "allDetails"      => $allDetails  // 包含 leave_hours 的明細
     ];
 }
 

@@ -17,16 +17,13 @@ class OvertimeFlowHandler {
     }
 
     public function handle() {
-
         $userText = $this->event['message']['text'] ?? '';
         
-        // 🔥【修改這段】通用判斷：如果是指令，且不是 "/加班" 本身，就中斷
         if (isCommand($userText) && $userText !== "/加班") {
             $this->session->clearStep();
             return false;
         }
 
-        // 1. 處理 Postback (日期/時間選擇器)
         if ($this->event['type'] === 'postback') {
             $data = $this->event['postback']['data'];
             parse_str($data, $params);
@@ -37,9 +34,6 @@ class OvertimeFlowHandler {
                 if ($params['action'] === 'select_ot_end') return $this->handleEndTime($this->event['postback']['params']['time']);
             }
         }
-
-        $userText = $this->event['message']['text'] ?? '';
-        
 
         $step = $this->session->getStep();
 
@@ -63,18 +57,18 @@ class OvertimeFlowHandler {
         $this->session->setStep("ot_date");
         $today = date("Y-m-d");
 
-        replyQuickReply($this->event['replyToken'], "💪 加班辛苦了！請選擇加班日期：", [
-            ["📆 今天", $today],
+        replyQuickReply($this->event['replyToken'], "請選擇或輸入加班日期：", [
+            ["今日", $today],
             [
                 "type" => "action",
                 "action" => [
                     "type" => "datetimepicker",
-                    "label" => "✏️ 選擇日期",
+                    "label" => "選擇日期",
                     "data" => "action=select_ot_date",
                     "mode" => "date"
                 ]
             ],
-            ["❌ 取消", "/取消"]
+            ["取消", "/取消"]
         ]);
         return true;
     }
@@ -83,7 +77,7 @@ class OvertimeFlowHandler {
         $this->session->set("ot_date", $text);
         $this->session->setStep("ot_start");
         
-        replyQuickReply($this->event['replyToken'], "🕒 請選擇「開始」加班時間：", [[
+        replyQuickReply($this->event['replyToken'], "請選擇「開始」加班時間：", [[
             "type" => "action",
             "action" => ["type" => "datetimepicker", "label" => "選擇開始時間", "data" => "action=select_ot_start", "mode" => "time"]
         ]]);
@@ -94,7 +88,7 @@ class OvertimeFlowHandler {
         $this->session->set("ot_start", $text);
         $this->session->setStep("ot_end");
         
-        replyQuickReply($this->event['replyToken'], "🕒 請選擇「結束」加班時間：", [[
+        replyQuickReply($this->event['replyToken'], "請選擇「結束」加班時間：", [[
             "type" => "action",
             "action" => ["type" => "datetimepicker", "label" => "選擇結束時間", "data" => "action=select_ot_end", "mode" => "time"]
         ]]);
@@ -104,7 +98,7 @@ class OvertimeFlowHandler {
     private function handleEndTime($text) {
         $this->session->set("ot_end", $text);
         $this->session->setStep("ot_reason");
-        replyTextMessage($this->event['replyToken'], "📝 請輸入加班原因/內容：");
+        replyTextMessage($this->event['replyToken'], "請簡述加班原因或內容：");
         return true;
     }
 
@@ -114,54 +108,55 @@ class OvertimeFlowHandler {
         $end = $this->session->get("ot_end");
         $reason = $text;
 
-        // 存入 DB
+        // 🔥 1. 計算加班時數 (含假日邏輯)
+        $otHours = calculateOvertimeHours("$date $start", "$date $end");
+
         $uuid = uniqid("OT-");
         $stmt = $this->db->prepare("SELECT name FROM users WHERE user_id = ?");
         $stmt->execute([$this->lineId]);
-        $name = $stmt->fetchColumn() ?: "未知";
+        $name = $stmt->fetchColumn() ?: "員工";
 
+        // 🔥 2. 存入 DB (包含 hours 欄位)
         $stmt = $this->db->prepare("
-            INSERT INTO overtime_requests (overtime_uuid, user_id, user_name, start_at, end_at, reason, status)
-            VALUES (?, ?, ?, ?, ?, ?, 'pending')
+            INSERT INTO overtime_requests (overtime_uuid, user_id, user_name, start_at, end_at, hours, reason, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
         ");
-        $stmt->execute([$uuid, $this->lineId, $name, "$date $start", "$date $end", $reason]);
+        $stmt->execute([$uuid, $this->lineId, $name, "$date $start", "$date $end", $otHours, $reason]);
 
-        // 產生審核連結
+        // 🔥 3. 產生商務版審核連結 (使用 line://)
         $botId = getenv("LINE_BOT_ID"); 
         $approvalCommand = "/同意加班 {$uuid}";
-        $encoded = rawurlencode($approvalCommand);
-        $approvalLink = "https://line.me/R/oaMessage/@{$botId}/?{$encoded}";
+        $approvalLink = "line://oaMessage/@{$botId}/?" . rawurlencode($approvalCommand);
 
-        // 1️⃣ 第一則訊息：申請詳情 + 連結
-        $mainMsgText = "✅ 加班申請已送出！\n" .
-                       "👤 員工：{$name}\n" .
-                       "📅 日期：{$date}\n" .
-                       "🕒 時間：{$start} ~ {$end}\n" .
-                       "📝 原因：{$reason}\n\n" .
-                       "👉 點擊以下連結，系統將自動填入指令，請直接送出即可完成簽核：\n" .
-                       $approvalLink . "\n\n" .
-                       "若不同意，請口頭告知申請者即可，無需操作此連結。";
+        // 🔥 4. 第一則訊息：正式簽核通知 (無表情符號)
+        $mainMsgText = "【加班簽核通知】\n" .
+                       "────────────────\n" .
+                       "申請人員｜{$name}\n" .
+                       "加班時數｜{$otHours} 小時\n" .
+                       "加班時段｜{$date} {$start} ~ {$end}\n" .
+                       "加班內容｜{$reason}\n" .
+                       "────────────────\n" .
+                       "若同意申請，請點擊下方連結簽核：\n" .
+                       $approvalLink;
 
-        // 2️⃣ 第二則訊息：主管名單 (提醒轉傳)
+        // 🔥 5. 第二則訊息：主管提示
         $supStmt = $this->db->prepare("SELECT supervisor_id FROM user_supervisors WHERE user_id = ?");
         $supStmt->execute([$this->lineId]);
         $supervisorIds = $supStmt->fetchAll(PDO::FETCH_COLUMN);
 
-        $supervisorMsgText = "";
+        $supervisorMsgText = "【系統提示】\n────────────────\n請將上方訊息轉傳給：";
         if (!empty($supervisorIds)) {
             $names = getSupervisorNames($supervisorIds);
-            $supervisorMsgText = "📌 請記得轉傳上方訊息給以下主管簽核：\n- " . implode("\n- ", $names);
+            $supervisorMsgText .= "\n─ " . implode("\n─ ", $names);
         } else {
-            $supervisorMsgText = "⚠️ 系統未設定您的主管，請通知管理員。";
+            $supervisorMsgText .= "\n尚未設定您的直屬主管，請聯繫管理員。";
         }
 
-        // 組合成陣列，一次發送兩則
         $messages = [
             ['type' => 'text', 'text' => $mainMsgText],
             ['type' => 'text', 'text' => $supervisorMsgText]
         ];
 
-        // 使用 replyMessage 發送多則訊息
         replyMessage($this->event['replyToken'], $messages);
         
         $this->session->clear();

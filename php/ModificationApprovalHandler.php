@@ -35,14 +35,12 @@ class ModificationApprovalHandler {
     }
 
     private function approveModification($uuid) {
-        // 🔥 1. 改用 modification_uuid 查詢
         $stmt = $this->db->prepare("SELECT * FROM leave_modifications WHERE modification_uuid = ?");
         $stmt->execute([$uuid]);
         $mod = $stmt->fetch(PDO::FETCH_ASSOC);
         
         if (!$mod || $mod['status'] !== 'pending') return "⚠️ 此申請不存在或已處理過。";
 
-        // 2. 撈出原始假單
         $stmt = $this->db->prepare("SELECT * FROM leave_requests WHERE id = ?");
         $stmt->execute([$mod['leave_request_id']]);
         $original = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -57,8 +55,11 @@ class ModificationApprovalHandler {
                 $newStart = str_replace('T', ' ', $mod['target_date']); 
                 if (strlen($newStart) == 10) $newStart .= " 09:00:00"; 
                 
-                $update = $this->db->prepare("UPDATE leave_requests SET start_at = ? WHERE id = ?");
-                $update->execute([$newStart, $original['id']]);
+                // 🔥 重新計算時數 (新的開始 ~ 原本的結束)
+                $newHours = calculateHours($newStart, $original['end_at']);
+
+                $update = $this->db->prepare("UPDATE leave_requests SET start_at = ?, leave_hours = ? WHERE id = ?");
+                $update->execute([$newStart, $newHours, $original['id']]);
             }
 
             // --- B. 提早結束 (修改 End) ---
@@ -66,63 +67,71 @@ class ModificationApprovalHandler {
                 $newEnd = str_replace('T', ' ', $mod['target_date']);
                 if (strlen($newEnd) == 10) $newEnd .= " 18:00:00"; 
 
-                $update = $this->db->prepare("UPDATE leave_requests SET end_at = ? WHERE id = ?");
-                $update->execute([$newEnd, $original['id']]);
+                // 🔥 重新計算時數 (原本的開始 ~ 新的結束)
+                $newHours = calculateHours($original['start_at'], $newEnd);
+
+                $update = $this->db->prepare("UPDATE leave_requests SET end_at = ?, leave_hours = ? WHERE id = ?");
+                $update->execute([$newEnd, $newHours, $original['id']]);
             }
 
             // --- C. 中途銷假 (拆單) ---
             elseif ($mod['type'] === 'split') {
                 $workDate = new DateTime($mod['target_date']);
                 
+                // 1. 舊單縮短
                 $prevDay = clone $workDate;
                 $prevDay->modify('-1 day');
-                $newEndForOld = $prevDay->format('Y-m-d 17:30:00'); // 改成貴公司下班時間
+                $newEndForOld = $prevDay->format('Y-m-d 17:30:00');
 
+                // 🔥 重新計算舊單縮短後的時數
+                $newHoursForOld = calculateHours($original['start_at'], $newEndForOld);
+
+                $update = $this->db->prepare("UPDATE leave_requests SET end_at = ?, leave_hours = ? WHERE id = ?");
+                $update->execute([$newEndForOld, $newHoursForOld, $original['id']]);
+
+                // 2. 只有當「新開始時間」早於「原結束時間」時，才需要插入新單
                 $nextDay = clone $workDate;
                 $nextDay->modify('+1 day');
-                $newStartForNew = $nextDay->format('Y-m-d 08:30:00'); // 改成貴公司上班時間
+                $newStartForNew = $nextDay->format('Y-m-d 08:30:00');
 
-                // 更新舊單
-                $update = $this->db->prepare("UPDATE leave_requests SET end_at = ? WHERE id = ?");
-                $update->execute([$newEndForOld, $original['id']]);
-
-                // 只有當「新開始時間」還早於「原結束時間」時，才需要插入新單
                 if ($newStartForNew < $original['end_at']) {
+                    // 🔥 計算新單的時數
+                    $hoursForNew = calculateHours($newStartForNew, $original['end_at']);
+
                     $insert = $this->db->prepare("
                         INSERT INTO leave_requests 
-                        (user_id, leave_type, start_at, end_at, reason, request_group_id, supervisor_ids, status, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, 'approved', NOW())
+                        (user_id, user_name, leave_type, start_at, end_at, leave_hours, reason, request_group_id, status, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'approved', NOW())
                     ");
                     $insert->execute([
                         $original['user_id'],
+                        $original['user_name'],
                         $original['leave_type'],
                         $newStartForNew,
                         $original['end_at'],
+                        $hoursForNew, // 寫入新計算的時數
                         $original['reason'] . " (銷假拆單)",
-                        $original['request_group_id'], // 繼承原本的 GroupID
-                        $original['supervisor_ids']
+                        $original['request_group_id']
                     ]);
                 }
             }
 
             // 更新申請狀態
-            // 🔥 這裡記得用 id (primary key) 更新，因為 $mod 已經撈到了
             $stmt = $this->db->prepare("UPDATE leave_modifications SET status = 'approved' WHERE id = ?");
             $stmt->execute([$mod['id']]);
 
             $this->db->commit();
             
-            // 通知員工
             pushMessage($original['user_id'], [
                 "type" => "text", 
-                "text" => "✅ 您的銷假/修改申請已核准！\n假單已自動更新。"
+                "text" => "【系統通知】您的銷假/修改申請已核准，特休額度已重新計算並歸檔。"
             ]);
 
-            return "✅ 核准成功！資料庫已更新。";
+            return "【核准成功】資料庫時數已更新。";
 
         } catch (Exception $e) {
             $this->db->rollBack();
-            return "❌ 系統錯誤：" . $e->getMessage();
+            return "【系統錯誤】" . $e->getMessage();
         }
     }
 }

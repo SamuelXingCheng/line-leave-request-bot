@@ -54,12 +54,16 @@ try {
     $startAt = $input['startDate'] . ' ' . $input['startTime'];
     $endAt   = $input['endDate'] . ' ' . $input['endTime'];
 
+    $leaveHours = calculateHours($startAt, $endAt);
+
     $stmt = $db->prepare("
         INSERT INTO leave_requests (
-            request_group_id, user_id, user_name, leave_type, reason, start_at, end_at, status, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', NOW())
+            request_group_id, user_id, user_name, leave_type, reason, start_at, end_at, leave_hours, status, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())
     ");
-    $stmt->execute([$uuid, $userId, $userName, $input['leaveType'], $reason, $startAt, $endAt]);
+    $stmt->execute([
+        $uuid, $userId, $userName, $input['leaveType'], $reason, $startAt, $endAt, $leaveHours
+    ]);
     $leaveId = $db->lastInsertId();
 
     // 5. 建立簽核關聯 (確保主管有權限簽核)
