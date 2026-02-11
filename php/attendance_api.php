@@ -13,6 +13,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/Db.php';
+require_once __DIR__ . '/utils.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -132,6 +133,24 @@ try {
     $stmt->execute([
         $uuid, $userId, $mode, $lat, $lng, intval($min_distance), $status, $reason, $approval
     ]);
+
+    // 🔥【新增 2】資料庫存檔成功後，直接推播 LINE 訊息給使用者
+    if ($userId && $message) {
+        $pushContent = [
+            "type" => "text",
+            "text" => $message 
+        ];
+        
+        // 如果是待審核 (距離太遠)，也可以多推播一個地圖連結給使用者確認 (選擇性功能)
+        if ($status === 'fail' && isset($mapUrl)) {
+             // 這裡可以改成發送兩則訊息，或將地圖連結加在文字後
+             $pushContent['text'] .= "\n📍 定位點：$mapUrl";
+        }
+
+        // 呼叫 utils.php 裡的函式
+        pushMessage($userId, $pushContent);
+    }
+    
 } catch (Exception $e) {
     echo json_encode(["status" => "error", "message" => "❌ 存取打卡紀錄失敗: " . $e->getMessage()]);
     exit;
