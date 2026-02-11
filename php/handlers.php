@@ -28,6 +28,13 @@ function handleMessage($event, $db) {
     $userId     = $event['source']['userId'];
     $text       = $event['message']['text'] ?? ''; 
 
+    if (strpos($text, "【請假簽核通知】") !== false || 
+        strpos($text, "【系統提示】") !== false ||
+        strpos($text, "【系統通知】") !== false) {
+        error_log("🔍 [Trace] 偵測到轉傳通知，不執行任何動作。");
+        return; // 直接結束，不回覆任何訊息
+    }
+
     error_log("🔍 [Trace] 1. 進入 handleMessage, 指令: " . $text);
 
     // 統一清除 Session
