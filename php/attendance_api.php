@@ -2,7 +2,7 @@
 // attendance_api.php
 
 // 允許跨域請求
-header("Access-Control-Allow-Origin: https://citcnew.org.tw");
+header("Access-Control-Allow-Origin: https://churchintaichung.org");
 header("Access-Control-Allow-Methods: POST, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type");
 

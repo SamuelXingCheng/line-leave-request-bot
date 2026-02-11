@@ -91,6 +91,9 @@ class AttendanceApprovalHandler {
         }
     
         replyTextMessage($replyToken, $msg);
+        // 🔥【新增】推播通知員工
+        $employeeMsg = "✅ 您的補打卡申請已核准！\n時間：{$time}\n類型：{$mode}";
+        pushMessage($row['user_id'], ["type" => "text", "text" => $employeeMsg]);
 
     }
 }

@@ -87,5 +87,8 @@ class OvertimeApprovalHandler {
             "說明：{$row['reason']}\n\n" .
             "此時數已存入補休帳戶。"
         );
+
+        $employeeMsg = "✅ 您的加班申請已核准！\n時間：{$row['start_at']} ~ {$row['end_at']}\n已存入補休時數。";
+        pushMessage($row['user_id'], ["type" => "text", "text" => $employeeMsg]);
     }
 }
