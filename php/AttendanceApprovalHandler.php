@@ -5,7 +5,7 @@ require_once __DIR__ . '/utils.php';
 
 class AttendanceApprovalHandler {
     private $lineId;   // 主管 ID
-    private $userText;
+    private $userText; // 使用者傳來的文字
     private $db;
 
     public function __construct($lineId, $userText) {
@@ -15,21 +15,22 @@ class AttendanceApprovalHandler {
     }
 
     public function handle($replyToken) {
-        if (strpos($this->userText, "/審核打卡") === 0) {
+        // 配合 LIFF 連結指令：/同意補卡
+        if (strpos($this->userText, "/同意補卡") === 0) {
             $parts = explode(" ", $this->userText);
             if (count($parts) === 2) {
                 $uuid = $parts[1];
                 $this->handleApproveAttendance($replyToken, $uuid);
             } else {
-                replyTextMessage($replyToken, "❗請使用格式：/審核打卡 打卡編號");
+                replyTextMessage($replyToken, "【系統提示】格式錯誤，請使用連結點擊。");
             }
             return true;
         }
-        return false; // 不是打卡審核指令
+        return false; 
     }
 
     private function handleApproveAttendance($replyToken, $uuid) {
-        // 撈出待審核的打卡紀錄
+        // 1. 撈出待審核紀錄
         $stmt = $this->db->prepare("
             SELECT al.*, u.name AS employee_name
             FROM attendance_logs al
@@ -40,11 +41,11 @@ class AttendanceApprovalHandler {
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
     
         if (!$row) {
-            replyTextMessage($replyToken, "❌ 找不到待簽核的打卡紀錄（編號: {$uuid}）。");
+            replyTextMessage($replyToken, "【系統提示】找不到此補卡申請，或該申請已完成簽核。");
             return;
         }
     
-        // 確認主管關係
+        // 2. 權限檢查
         $checkStmt = $this->db->prepare("
             SELECT COUNT(*) 
             FROM user_supervisors 
@@ -54,46 +55,46 @@ class AttendanceApprovalHandler {
         $isSupervisor = $checkStmt->fetchColumn();
     
         if (!$isSupervisor) {
-            replyTextMessage($replyToken, "⛔ 你不是員工 {$row['employee_name']} 的主管，無法簽核這筆打卡。");
+            replyTextMessage($replyToken, "【權限警告】您不是該員工的直屬主管，無法執行簽核。");
             return;
         }
     
-        // 更新為 approved
+        // 3. 執行核准 (status 改為 valid 代表生效)
         $updateStmt = $this->db->prepare("
             UPDATE attendance_logs 
-            SET approval_status = 'approved', approved_at = NOW()
+            SET approval_status = 'approved', 
+                status = 'success',  
+                approved_at = NOW()
             WHERE attendance_uuid = ?
         ");
-        $updateStmt->execute([$uuid]);
+        
+        if ($updateStmt->execute([$uuid])) {
+            $time = substr($row['created_at'], 0, 16); // 格式 YYYY-MM-DD HH:mm
+            $typeStr = $row['mode']; // 上班 或 下班
+            $reason = $row['reason'] ?? "（未填寫）";
 
-        // 判斷是 GPS 打卡還是補打卡
-        $isCorrection = is_null($row['latitude']) && is_null($row['longitude']);
-        $mode   = $row['mode'];             // 上班 or 下班
-        $reason = $row['reason'] ?? "—";
-        $time   = $row['created_at'];
+            // 回覆主管 (商務版格式)
+            $msg = "【補打卡簽核通知】\n" .
+                   "────────────────\n" .
+                   "簽核狀態｜已核准 (Approved)\n" .
+                   "員工姓名｜{$row['employee_name']}\n" .
+                   "補卡類別｜{$typeStr}\n" .
+                   "補卡時間｜{$time}\n" .
+                   "補卡原因｜{$reason}\n" .
+                   "────────────────\n" .
+                   "系統提示｜資料已正式寫入考勤紀錄。";
+            
+            replyTextMessage($replyToken, $msg);
 
-        if ($isCorrection) {
-            // 補打卡
-            $msg = "✅ 已完成補打卡簽核\n"
-                 . "員工：{$row['employee_name']}\n"
-                 . "類型：{$mode}\n"
-                 . "時間：{$time}\n"
-                 . "原因：{$reason}\n"
-                 . "編號：{$uuid}";
+            // 推播通知員工 (商務版格式)
+            $employeeMsg = "【系統通知】\n" .
+                           "────────────────\n" .
+                           "您的「{$typeStr}」補打卡申請已通過核准。\n" .
+                           "生效時間｜{$time}";
+                           
+            pushMessage($row['user_id'], ["type" => "text", "text" => $employeeMsg]);
         } else {
-            // GPS 打卡
-            $msg = "✅ 已完成打卡簽核\n"
-                 . "員工：{$row['employee_name']}\n"
-                 . "類型：{$mode}\n"
-                 . "時間：{$time}\n"
-                 . "位置：Lat {$row['latitude']}, Lng {$row['longitude']}\n"
-                 . "編號：{$uuid}";
+            replyTextMessage($replyToken, "【系統錯誤】資料庫更新失敗，請聯繫管理員。");
         }
-    
-        replyTextMessage($replyToken, $msg);
-        // 🔥【新增】推播通知員工
-        $employeeMsg = "✅ 您的補打卡申請已核准！\n時間：{$time}\n類型：{$mode}";
-        pushMessage($row['user_id'], ["type" => "text", "text" => $employeeMsg]);
-
     }
 }
