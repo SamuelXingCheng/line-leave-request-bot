@@ -204,7 +204,7 @@ function buildForwardMessage(array $requests, string $requestGroupId): array {
     // 整理多日清單
     $dateLines = [];
     foreach ($requests as $req) {
-        $line = "📅 {$req['start_date']} {$req['start_time']} ~ {$req['end_date']} {$req['end_time']}";
+        $line = "{$req['start_date']} {$req['start_time']} ~ {$req['end_date']} {$req['end_time']}";
         $dateLines[] = $line;
     }
     $dateLinesStr = implode("\n", $dateLines);
@@ -213,14 +213,16 @@ function buildForwardMessage(array $requests, string $requestGroupId): array {
     $forwardMsg = [
         "type" => "text",
         "text" =>
-            "員工：{$userName}\n" .
-            "假別：{$leaveType}\n" .
-            "原因：{$reason}\n\n" .
-            "以下時間需要請假：\n" .
-            $dateLinesStr .
-            "\n\n👉 點擊以下連結，系統將自動填入「/同意請假」指令，請直接送出即可完成簽核：\n" .
-            $approvalLink .
-            "\n\n若不同意，請口頭告知請假者即可，無需操作此連結。"
+            "【請假簽核通知】\n" .
+            "────────────────\n" .
+            "申請人員｜{$userName}\n" .
+            "假別類別｜{$leaveType}\n" .
+            "請假事由｜{$reason}\n" .
+            "────────────────\n" .
+            "申請時段：\n" .
+            $dateLinesStr . "\n\n" .
+            "若同意申請，請點擊下方連結簽核：" .
+            "\n" . $approvalLink
     ];
 
     $messages = [$forwardMsg];
@@ -235,7 +237,7 @@ function buildForwardMessage(array $requests, string $requestGroupId): array {
 
         $hintMsg = [
             "type" => "text",
-            "text" => "📌 請記得轉傳上方訊息給以下主管簽核：\n" . implode("\n", $lines)
+            "text" => "系統提示｜請將上方訊息轉傳給：\n" . implode("、", $lines) // 改用頓號分隔更像文章
         ];
 
         $messages[] = $hintMsg;

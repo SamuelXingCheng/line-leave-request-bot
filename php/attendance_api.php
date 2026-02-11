@@ -95,10 +95,11 @@ if ($is_in_range || $is_qr_valid) {
     $approval = "normal";
     
     if ($is_qr_valid) {
-        $reason = "辦公室 QR 掃描打卡 (位置補償)";
-        $message = "✅ {$mode}打卡成功！(已透過 QR Code 驗證地點)";
+        $reason = "位置補償 (QR Code)";
+        $message = "【打卡成功】{$mode}\n方式｜QR Code 驗證";
     } else {
-        $message = "✅ {$mode}打卡成功！時間：{$now}";
+        // 🔥 修改：標準風格
+        $message = "【打卡成功】{$mode}\n時間｜" . date('H:i', strtotime($now));
     }
 } else {
     // 失敗條件：不在範圍內且 QR Token 錯誤
@@ -120,7 +121,7 @@ if ($is_in_range || $is_qr_valid) {
     $approvalUrl = "https://line.me/R/oaMessage/@{$BOT_BASIC_ID}/?" . rawurlencode($approvalCommand);
 
     $mapUrl = "https://www.google.com/maps?q={$lat},{$lng}";
-    $message = "⚠️ 不在辦公範圍內（最近距離 " . intval($min_distance) . " 公尺），打卡狀態為【待審核】。";
+    $message = "【打卡異常】不在允許範圍內\n狀態｜已送出申請，待主管審核\n距離｜" . intval($min_distance) . " 公尺";
 }
 
 // 存進資料庫
@@ -143,14 +144,13 @@ try {
         
         // 如果是待審核 (距離太遠)，也可以多推播一個地圖連結給使用者確認 (選擇性功能)
         if ($status === 'fail' && isset($mapUrl)) {
-             // 這裡可以改成發送兩則訊息，或將地圖連結加在文字後
-             $pushContent['text'] .= "\n📍 定位點：$mapUrl";
+         $pushText .= "\n定位｜$mapUrl";
         }
 
         // 呼叫 utils.php 裡的函式
         pushMessage($userId, $pushContent);
     }
-    
+
 } catch (Exception $e) {
     echo json_encode(["status" => "error", "message" => "❌ 存取打卡紀錄失敗: " . $e->getMessage()]);
     exit;

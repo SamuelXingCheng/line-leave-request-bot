@@ -39,39 +39,44 @@ class LeaveQueryHandler {
                     "type" => "box",
                     "layout" => "vertical",
                     "contents" => [
-                        // 1. 特休區塊
+                        // 1. 標題區塊
                         [
                             "type" => "text",
-                            "text" => "📊 年度休假統計",
+                            "text" => "【年度休假概況】", // 去除 📊，改用【】
                             "weight" => "bold",
                             "size" => "xl",
-                            "color" => "#1DB446",
+                            "color" => "#333333", // 改深灰色
                             "margin" => "md"
                         ],
                         ["type" => "separator", "margin" => "md"],
+
+                        // 2. 特休區塊
                         [
                             "type" => "text", 
-                            "text" => "🌴 特休假", 
+                            "text" => "特休假｜Annual Leave", // 去除 🌴，加上英文或直線裝飾
                             "weight" => "bold", 
-                            "size" => "md", 
-                            "margin" => "md"
+                            "size" => "sm", 
+                            "color" => "#999999",
+                            "margin" => "lg"
                         ],
-                        ["type" => "text", "text" => "應得：" . formatHoursAndDays($stats['entitledAnnual']), "size" => "sm", "margin" => "sm"],
-                        ["type" => "text", "text" => "已用：" . formatHoursAndDays($stats['usedAnnual']), "size" => "sm", "color" => "#CC0000"],
-                        ["type" => "text", "text" => "剩餘：" . formatHoursAndDays($stats['remainingAnnual']), "size" => "sm", "color" => "#228B22", "weight" => "bold"],
+                        // 數據欄位微調：左右對齊的排版會更有質感，這裡維持直列但調整字體
+                        ["type" => "text", "text" => "• 應得天數：" . formatHoursAndDays($stats['entitledAnnual']), "size" => "sm", "margin" => "sm", "color" => "#555555"],
+                        ["type" => "text", "text" => "• 已用天數：" . formatHoursAndDays($stats['usedAnnual']), "size" => "sm", "color" => "#555555"],
+                        ["type" => "text", "text" => "• 剩餘天數：" . formatHoursAndDays($stats['remainingAnnual']), "size" => "sm", "color" => "#1DB446", "weight" => "bold"], // 綠色強調
                         
-                        // 2. 補休區塊
+                        // 3. 補休區塊
                         ["type" => "separator", "margin" => "lg"],
                         [
                             "type" => "text", 
-                            "text" => "💤 加班補休", 
+                            "text" => "加班補休｜Compensatory Leave", // 去除 💤
                             "weight" => "bold", 
-                            "size" => "md", 
-                            "margin" => "md"
+                            "size" => "sm", 
+                            "color" => "#999999",
+                            "margin" => "lg"
                         ],
-                        ["type" => "text", "text" => "累積：" . formatHoursAndDays($stats['earnedComp']), "size" => "sm", "margin" => "sm"],
-                        ["type" => "text", "text" => "已休：" . formatHoursAndDays($stats['usedComp']), "size" => "sm", "color" => "#CC0000"],
-                        ["type" => "text", "text" => "可休：" . formatHoursAndDays($stats['remainingComp']), "size" => "sm", "color" => "#228B22", "weight" => "bold"],
+                        ["type" => "text", "text" => "• 累積時數：" . formatHoursAndDays($stats['earnedComp']), "size" => "sm", "margin" => "sm", "color" => "#555555"],
+                        ["type" => "text", "text" => "• 已用時數：" . formatHoursAndDays($stats['usedComp']), "size" => "sm", "color" => "#555555"],
+                        ["type" => "text", "text" => "• 可用時數：" . formatHoursAndDays($stats['remainingComp']), "size" => "sm", "color" => "#1DB446", "weight" => "bold"],
                     ]
                 ]
             ];
@@ -82,7 +87,8 @@ class LeaveQueryHandler {
                 if ($type !== '特休' && $type !== '補休' && $hours > 0) {
                     if (!$hasOther) {
                         $contents["body"]["contents"][] = ["type" => "separator", "margin" => "lg"];
-                        $contents["body"]["contents"][] = ["type" => "text", "text" => "📌 其他已用假別", "weight" => "bold", "size" => "md", "margin" => "md"];
+                        // 去除 📌
+                        $contents["body"]["contents"][] = ["type" => "text", "text" => "其他已用假別｜Others", "weight" => "bold", "size" => "sm", "color" => "#999999", "margin" => "lg"];
                         $hasOther = true;
                     }
                     $contents["body"]["contents"][] = ["type" => "text", "text" => "• {$type}：" . formatHoursAndDays($hours), "size" => "sm", "color" => "#555555", "margin" => "sm"];
@@ -91,19 +97,18 @@ class LeaveQueryHandler {
 
             // 4. 明細列表 (🔥 限制顯示最近 10 筆)
             $contents["body"]["contents"][] = ["type" => "separator", "margin" => "lg"];
-            $contents["body"]["contents"][] = ["type" => "text", "text" => "📋 近期請假明細", "weight" => "bold", "size" => "md", "margin" => "md"];
+            // 去除 📋
+            $contents["body"]["contents"][] = ["type" => "text", "text" => "近期請假明細", "weight" => "bold", "size" => "md", "margin" => "md", "color" => "#333333"];
 
             if ($stats['allDetails']) {
                 $count = 0;
                 foreach ($stats['allDetails'] as $row) {
-                    if ($count >= 10) break; // ✅ 這裡控制了長度，避免年底太長
+                    if ($count >= 10) break;
                     
-                    // 🔥 呼叫 utils.php 的函式，取得展開後的日期列表 (會自動扣除 holiday)
                     $actualDays = getActualLeaveDays($row['start_at'], $row['end_at']);
                     
-                    // 把陣列變成字串 (用換行符號連接)
                     if (empty($actualDays)) {
-                        $dateText = "⚠️ 無需請假 (全為假日)";
+                        $dateText = "（無需請假，全為假日）"; // 去除 ⚠️
                     } else {
                         $dateText = implode("\n", $actualDays);
                     }
@@ -115,17 +120,17 @@ class LeaveQueryHandler {
                         "contents" => [
                             [
                                 "type" => "text", 
-                                "text" => "【{$row['leave_type']}】", // 標題只放假別
+                                "text" => "【{$row['leave_type']}】", 
                                 "weight" => "bold",
                                 "size" => "sm", 
                                 "color" => "#333333"
                             ],
                             [
                                 "type" => "text", 
-                                "text" => $dateText, // 🔥 這裡放入展開後的日期
-                                "size" => "xs",      // 字體稍微縮小一點以免太佔版面
+                                "text" => $dateText, 
+                                "size" => "xs",
                                 "color" => "#666666",
-                                "wrap" => true       // ⚠️ 重要：要開啟換行功能
+                                "wrap" => true
                             ]
                         ]
                     ];
@@ -148,11 +153,11 @@ class LeaveQueryHandler {
 
             // 🔥 準備 Quick Reply (保留挑選時段功能)
             $quickReplyItems = [
-                ["type" => "action", "action" => ["type" => "message", "label" => "📆 查上個月", "text" => "查上個月"]],
-                ["type" => "action", "action" => ["type" => "message", "label" => "📊 查本月", "text" => "查本月"]],
-                ["type" => "action", "action" => ["type" => "message", "label" => "📋 查今年", "text" => "查今年"]], // ✅ 加回這顆按鈕
-                ["type" => "action", "action" => ["type" => "message", "label" => "✏️ 自訂區間", "text" => "自訂查詢"]],
-                ["type" => "action", "action" => ["type" => "message", "label" => "❌ 關閉", "text" => "/取消查詢"]],
+                ["type" => "action", "action" => ["type" => "message", "label" => "查詢上月", "text" => "查上個月"]],
+                ["type" => "action", "action" => ["type" => "message", "label" => "查詢本月", "text" => "查本月"]],
+                ["type" => "action", "action" => ["type" => "message", "label" => "查詢今年", "text" => "查今年"]],
+                ["type" => "action", "action" => ["type" => "message", "label" => "自訂區間", "text" => "自訂查詢"]],
+                ["type" => "action", "action" => ["type" => "message", "label" => "關閉選單", "text" => "/取消查詢"]],
             ];
 
             // 發送 Flex Message 帶 Quick Reply
@@ -193,10 +198,11 @@ class LeaveQueryHandler {
                 return true;
             } elseif ($this->userText === "/取消查詢") {
                 $this->session->clear();
-                replyTextMessage($this->replyToken, "已取消查詢");
+                replyTextMessage($this->replyToken, "已關閉查詢功能。"); // 去除 "已取消查詢"
                 return true;
             } else {
-                replyTextMessage($this->replyToken, "❌ 無效選項，請點選下方按鈕或輸入 /取消查詢");
+                // 去除 ❌
+                replyTextMessage($this->replyToken, "【系統提示】選項無效，請點選下方按鈕或輸入 /取消查詢");
                 return true;
             }
 
@@ -215,7 +221,7 @@ class LeaveQueryHandler {
                 $startDate = new DateTimeImmutable(trim($startStr));
                 $endDate   = new DateTimeImmutable(trim($endStr));
             } catch (Exception $e) {
-                replyTextMessage($this->replyToken, "❌ 日期格式錯誤，請用 2025/07/01-2025/07/15");
+                replyTextMessage($this->replyToken, "【格式錯誤】請使用格式：2025/07/01-2025/07/15");
                 return true;
             }
 
@@ -256,35 +262,104 @@ class LeaveQueryHandler {
 
     // ✅ 抽出共用的訊息組裝
     private function buildFlexMessage($rows) {
-        $contents = ["type" => "bubble", "body" => ["type" => "box", "layout" => "vertical", "contents" => [["type" => "text", "text" => "📋 請假紀錄", "weight" => "bold", "size" => "lg", "margin" => "md"], ["type" => "separator", "margin" => "md"]]]];
+        $contents = [
+            "type" => "bubble",
+            "body" => [
+                "type" => "box",
+                "layout" => "vertical",
+                "contents" => [
+                    [
+                        "type" => "text",
+                        "text" => "請假紀錄一覽", // 簡潔標題
+                        "weight" => "bold",
+                        "size" => "xl",
+                        "color" => "#333333",
+                        "margin" => "md"
+                    ],
+                    ["type" => "separator", "margin" => "md"]
+                ]
+            ]
+        ];
         foreach ($rows as $row) {
-            $statusMap = ["pending" => ["尚未核准", "#999999"], "approved" => ["已通過", "#228B22"], "rejected" => ["已駁回", "#CC0000"]];
-            [$statusText, $statusColor] = $statusMap[$row['status']] ?? [$row['status'], "#555555"];
-            
+            // 狀態顯示：不依賴 Emoji，改用文字顏色
+            $statusMap = [
+                "pending" => ["審核中", "#FF9800"], // 橘色
+                "approved" => ["已核准", "#4CAF50"], // 綠色
+                "rejected" => ["已駁回", "#F44336"]  // 紅色
+            ];
+            [$statusText, $statusColor] = $statusMap[$row['status']] ?? [$row['status'], "#999999"];
+
             $actualDays = getActualLeaveDays($row['start_at'], $row['end_at']);
-            $dateText = empty($actualDays) ? "⚠️ 全為假日" : implode("\n", $actualDays);
+            $dateText = empty($actualDays) ? "無工作日 (全為假日)" : implode("\n", $actualDays);
 
             $item = [
-                "type" => "box", "layout" => "vertical", "margin" => "md", "spacing" => "sm",
+                "type" => "box",
+                "layout" => "vertical",
+                "margin" => "lg",
+                "spacing" => "sm",
                 "contents" => [
-                    // 🔥 這裡改成顯示展開後的日期
+                    // 第一行：假別 + 狀態 (左右對齊)
                     [
-                        "type" => "text", 
-                        "text" => $dateText, 
-                        "wrap" => true, // ⚠️ 重要：必須開啟換行
-                        "size" => "sm", 
-                        "color" => "#555555"
+                        "type" => "box",
+                        "layout" => "baseline",
+                        "contents" => [
+                            [
+                                "type" => "text",
+                                "text" => $row['leave_type'],
+                                "weight" => "bold",
+                                "size" => "md",
+                                "color" => "#333333",
+                                "flex" => 1
+                            ],
+                            [
+                                "type" => "text",
+                                "text" => $statusText,
+                                "size" => "sm",
+                                "color" => $statusColor,
+                                "align" => "end",
+                                "flex" => 0
+                            ]
+                        ]
                     ],
-                    ["type" => "box", "layout" => "baseline", "spacing" => "sm", "contents" => [["type" => "text", "text" => $row['leave_type'], "size" => "sm", "color" => "#111111", "flex" => 2], ["type" => "text", "text" => "狀態: " . $statusText, "size" => "sm", "color" => $statusColor, "flex" => 3]]]
+                    // 第二行：日期細項 (灰色細字)
+                    [
+                        "type" => "text",
+                        "text" => $dateText,
+                        "wrap" => true,
+                        "size" => "sm",
+                        "color" => "#666666",
+                        "lineSpacing" => "2px" // 增加行距提升閱讀感
+                    ]
                 ]
             ];
-            
+
+            // 刪除按鈕：改為簡潔文字
             if ($row['status'] === "pending") {
-                $item["contents"][] = ["type" => "button", "style" => "secondary", "height" => "sm", "action" => ["type" => "message", "label" => "刪除", "text" => "/刪除請假 " . $row['request_group_id']], "margin" => "md"];
+                $item["contents"][] = [
+                    "type" => "box",
+                    "layout" => "horizontal",
+                    "margin" => "md",
+                    "contents" => [
+                        [
+                            "type" => "text",
+                            "text" => "❌ 撤回申請", // 這裡保留一個常用的撤回符號，或是改成純文字 "撤回"
+                            "size" => "xs",
+                            "color" => "#999999",
+                            "action" => [
+                                "type" => "message",
+                                "label" => "撤回",
+                                "text" => "/刪除請假 " . $row['request_group_id']
+                            ],
+                            "align" => "end"
+                        ]
+                    ]
+                ];
             }
+            
             $item["contents"][] = ["type" => "separator", "margin" => "md"];
             $contents["body"]["contents"][] = $item;
         }
-        return ["type" => "flex", "altText" => "📋 請假紀錄", "contents" => $contents];
+        
+        return ["type" => "flex", "altText" => "請假紀錄", "contents" => $contents];
     }
 }

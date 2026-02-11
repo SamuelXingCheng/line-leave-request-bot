@@ -62,23 +62,23 @@ class LeaveFlowHandler {
 
     /** 修改後的第一步：選擇開始日期 */
     private function startLeaveFlow() {
-        $this->session->reset(); //
+        $this->session->reset();
         $this->session->setStep("leave_start_date");
 
         replyQuickReply(
-            $this->event['replyToken'], //
-            "第一步：請選擇「開始」請假日期：",
+            $this->event['replyToken'],
+            "【請假申請】STEP 1/4\n請選擇或輸入「開始」日期：",
             [
                 [
                     "type" => "action",
                     "action" => [
                         "type" => "datetimepicker",
-                        "label" => "✏選擇開始日期",
+                        "label" => "選擇日期", // 去除 ✏️
                         "data" => "action=select_start_date",
                         "mode" => "date"
                     ]
                 ],
-                ["取消請假", "/取消請假"]
+                ["取消申請", "/取消請假"] // 去除 ❌
             ]
         );
         return true;
@@ -91,19 +91,19 @@ class LeaveFlowHandler {
 
         replyQuickReply(
             $this->event['replyToken'],
-            "📅 已選開始：$userText\n\n第二步：請選擇「結束」日期：",
+            "【請假申請】STEP 2/4\n已設定開始日：$userText\n\n請選擇「結束」日期：",
             [
                 ["同開始日期", $userText],
                 [
                     "type" => "action",
                     "action" => [
                         "type" => "datetimepicker",
-                        "label" => "✏️ 選擇結束日期",
+                        "label" => "選擇結束日期",
                         "data" => "action=select_end_date",
                         "mode" => "date"
                     ]
                 ],
-                ["取消請假", "/取消請假"]
+                ["取消申請", "/取消請假"]
             ]
         );
         return true;
@@ -111,14 +111,18 @@ class LeaveFlowHandler {
 
     /** 新增的步驟：處理結束日期選擇 */
     private function handleLeaveEndDate($userText) {
-        $this->session->set("end_date", $userText); //
+        $this->session->set("end_date", $userText);
         $this->session->setStep("leave_time");
 
         replyQuickReply(
             $this->event['replyToken'],
-            "已選區間：" . $this->session->get("start_date") . " ~ " . $userText . "\n請選擇請假時段：",
+            "【請假申請】STEP 3/4\n日期區間｜" . $this->session->get("start_date") . " ~ " . $userText . "\n\n請選擇休假時段：",
             [
-                ["整天", "整天"], ["上午", "上午"], ["下午", "下午"], ["自訂", "自訂時段"], ["取消", "/取消請假"]
+                ["整天 (08:30-17:30)", "整天"], // 加上時間說明更清楚
+                ["上午 (08:30-12:00)", "上午"],
+                ["下午 (13:30-17:30)", "下午"],
+                ["自訂時間", "自訂時段"],
+                ["取消", "/取消請假"]
             ]
         );
         return true;
@@ -171,6 +175,7 @@ class LeaveFlowHandler {
     }
 
     /** 第三步：處理時段選擇 (若是自訂，則跳出 TimePicker) */
+    /** 第三步：處理時段選擇 (若是自訂，則跳出 TimePicker) */
     private function handleLeaveTime($userText) {
         if ($userText === "整天") {
             $this->session->set("start_time", "08:30");
@@ -182,12 +187,12 @@ class LeaveFlowHandler {
             $this->session->set("start_time", "13:30");
             $this->session->set("end_time", "17:30");
         } elseif ($userText === "自訂時段") {
-            // 🔥 改為設定步驟並彈出 TimePicker
+            // 🔥 修改：自訂時間的引導
             $this->session->setStep("leave_custom_start");
             
             replyQuickReply(
                 $this->event['replyToken'],
-                "🕒 請選擇「開始」時間：",
+                "【請假申請】STEP 3-1\n請選擇「開始」時間：",
                 [
                     [
                         "type" => "action",
@@ -198,7 +203,7 @@ class LeaveFlowHandler {
                             "mode" => "time"
                         ]
                     ],
-                    ["取消", "/取消請假"]
+                    ["取消作業", "/取消請假"]
                 ]
             );
             return true;
@@ -207,11 +212,11 @@ class LeaveFlowHandler {
             return true;
         }
 
-        // 如果不是自訂時段，直接跳下一步
+        // 🔥 修改：標準時段選擇後，進入最後一步
         $this->session->setStep("leave_type");
         replyQuickReply(
             $this->event['replyToken'],
-            "📝 請選擇請假類型：",
+            "【請假申請】STEP 4/4\n已選擇時段｜{$userText}\n\n請選擇假別類別：",
             $this->getLeaveTypes()
         );
         return true;
@@ -228,9 +233,10 @@ class LeaveFlowHandler {
         $this->session->set("start_time", $time);
         $this->session->setStep("leave_custom_end");
 
+        // 🔥 修改：顯示已選的開始時間
         replyQuickReply(
             $this->event['replyToken'],
-            "🕒 起始時間：{$time}\n請繼續選擇「結束」時間：",
+            "【請假申請】STEP 3-2\n起始時間｜{$time}\n\n請繼續選擇「結束」時間：",
             [
                 [
                     "type" => "action",
@@ -241,7 +247,7 @@ class LeaveFlowHandler {
                         "mode" => "time"
                     ]
                 ],
-                ["取消", "/取消請假"]
+                ["取消作業", "/取消請假"]
             ]
         );
         return true;
@@ -260,9 +266,11 @@ class LeaveFlowHandler {
         $this->session->setStep("leave_type");
 
         $start = $this->session->get("start_time");
+        
+        // 🔥 修改：顯示完整自訂時段，並請使用者選假別
         replyQuickReply(
             $this->event['replyToken'],
-            "⏰ 已設定時段：{$start} ~ {$time}\n\n📝 接下來，請選擇請假類型：",
+            "【請假申請】STEP 4/4\n自訂時段｜{$start} ~ {$time}\n\n請選擇假別類別：",
             $this->getLeaveTypes()
         );
         return true;
@@ -363,9 +371,9 @@ class LeaveFlowHandler {
 
         // 6. 回覆訊息
         if ($isBoss) {
-            $msg = "✅ 您的請假申請已自動核准歸檔。\n" .
-                   "📅 {$startDate} {$startTime} ~ {$endDate} {$endTime}\n" .
-                   "假別：{$leaveType}{$autoSwitchMsg}";
+            $msg = "【申請已歸檔】\n" .
+                "日期｜{$startDate} {$startTime} ~ {$endDate} {$endTime}\n" .
+                "假別｜{$leaveType}{$autoSwitchMsg}";
             replyTextMessage($this->event['replyToken'], $msg);
         } else {
             // 產生轉傳訊息
@@ -464,15 +472,15 @@ class LeaveFlowHandler {
     /** 假別 Quick Reply */
     private function getLeaveTypes() {
         return [
-            ["特休", "特休"],
-            ["補休", "補休"], // 🔥 新增：補休選項
+            ["特休假", "特休"],
+            ["補休假", "補休"], 
             ["事假", "事假"],
-            ["公差", "公差"], // 🔥 修改：公假 -> 公差
             ["病假", "病假"],
+            ["公差假", "公差"], 
             ["婚假", "婚假"],
             ["產假", "產假"],
             ["喪假", "喪假"],
-            ["❌ 取消請假", "/取消請假"]
+            ["取消作業", "/取消請假"] // 去除 Emoji，改用正式用語
         ];
     }
 
