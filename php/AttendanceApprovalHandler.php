@@ -4,8 +4,8 @@ require_once __DIR__ . '/Db.php';
 require_once __DIR__ . '/utils.php';
 
 class AttendanceApprovalHandler {
-    private $lineId;   // 主管 ID
-    private $userText; // 使用者傳來的文字
+    private $lineId;
+    private $userText;
     private $db;
 
     public function __construct($lineId, $userText) {
@@ -15,7 +15,6 @@ class AttendanceApprovalHandler {
     }
 
     public function handle($replyToken) {
-        // 配合 LIFF 連結指令：/同意補卡
         if (strpos($this->userText, "/同意補卡") === 0) {
             $parts = explode(" ", $this->userText);
             if (count($parts) === 2) {
@@ -59,40 +58,52 @@ class AttendanceApprovalHandler {
             return;
         }
     
-        // 3. 執行核准 (status 改為 valid 代表生效)
+        // 3. 執行核准 (status 改為 success)
         $updateStmt = $this->db->prepare("
             UPDATE attendance_logs 
             SET approval_status = 'approved', 
-                status = 'success',  
+                status = 'success', 
                 approved_at = NOW()
             WHERE attendance_uuid = ?
         ");
         
         if ($updateStmt->execute([$uuid])) {
-            $time = substr($row['created_at'], 0, 16); // 格式 YYYY-MM-DD HH:mm
-            $typeStr = $row['mode']; // 上班 或 下班
+            $time = substr($row['created_at'], 0, 16); 
+            $typeStr = $row['mode']; 
             $reason = $row['reason'] ?? "（未填寫）";
 
-            // 回覆主管 (商務版格式)
-            $msg = "【補打卡簽核通知】\n" .
-                   "────────────────\n" .
-                   "簽核狀態｜已核准 (Approved)\n" .
-                   "員工姓名｜{$row['employee_name']}\n" .
-                   "補卡類別｜{$typeStr}\n" .
-                   "補卡時間｜{$time}\n" .
-                   "補卡原因｜{$reason}\n" .
-                   "────────────────\n" .
-                   "系統提示｜資料已正式寫入考勤紀錄。";
+            // 🔥 升級 1：回覆主管 (Flex Message)
+            // 使用 utils.php 裡的產生器
+            $managerFlex = createBusinessFlex(
+                "APPROVED",          // 頂部狀態
+                "補打卡核准成功",      // 主標題
+                [                    // 內容列表
+                    "員工姓名" => $row['employee_name'],
+                    "補卡類別" => $typeStr,
+                    "補卡時間" => $time,
+                    "補卡原因" => $reason,
+                    "資料狀態" => "已生效 (Success)"
+                ],
+                "#06C755"            // 綠色 (成功)
+            );
             
-            replyTextMessage($replyToken, $msg);
+            replyFlexMessage($replyToken, $managerFlex);
 
-            // 推播通知員工 (商務版格式)
-            $employeeMsg = "【系統通知】\n" .
-                           "────────────────\n" .
-                           "您的「{$typeStr}」補打卡申請已通過核准。\n" .
-                           "生效時間｜{$time}";
+            // 🔥 升級 2：推播通知員工 (Flex Message)
+            $employeeFlex = createBusinessFlex(
+                "NOTIFICATION",
+                "補打卡申請已通過",
+                [
+                    "補卡類別" => $typeStr,
+                    "核准時間" => date("Y-m-d H:i"),
+                    "生效時間" => $time,
+                    "說明" => "您的考勤紀錄已更新。"
+                ],
+                "#06C755"
+            );
                            
-            pushMessage($row['user_id'], ["type" => "text", "text" => $employeeMsg]);
+            pushFlexMessage($row['user_id'], $employeeFlex);
+
         } else {
             replyTextMessage($replyToken, "【系統錯誤】資料庫更新失敗，請聯繫管理員。");
         }

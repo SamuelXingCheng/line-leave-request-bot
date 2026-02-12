@@ -425,6 +425,162 @@ function getLeaveSummary($userId) {
 }
 
 /**
+ * 產生商務風格的 Flex Message 結構
+ * * @param string $topStatus  頂部小標 (如: APPROVED, SUCCESS)
+ * @param string $mainTitle  主標題 (如: 補打卡核准通知)
+ * @param array  $dataPairs  資料陣列 ['員工' => '王小明', '時間' => '09:00']
+ * @param string $color      主色調 (預設 LINE Green: #06C755)
+ * @return array Flex Message 內容物件
+ */
+function createBusinessFlex($topStatus, $mainTitle, $dataPairs, $color = '#06C755') {
+    $rows = [];
+    foreach ($dataPairs as $label => $value) {
+        $rows[] = [
+            "type" => "box",
+            "layout" => "baseline",
+            "spacing" => "sm",
+            "contents" => [
+                [
+                    "type" => "text",
+                    "text" => $label,
+                    "color" => "#aaaaaa",
+                    "size" => "sm",
+                    "flex" => 2
+                ],
+                [
+                    "type" => "text",
+                    "text" => $value,
+                    "wrap" => true,
+                    "color" => "#666666",
+                    "size" => "sm",
+                    "flex" => 5
+                ]
+            ]
+        ];
+    }
+
+    return [
+        "type" => "flex",
+        "altText" => $mainTitle, // 在聊天列表顯示的預覽文字
+        "contents" => [
+            "type" => "bubble",
+            "size" => "giga", // 卡片寬度
+            "body" => [
+                "type" => "box",
+                "layout" => "vertical",
+                "contents" => [
+                    [
+                        "type" => "text",
+                        "text" => strtoupper($topStatus),
+                        "weight" => "bold",
+                        "color" => $color,
+                        "size" => "xs"
+                    ],
+                    [
+                        "type" => "text",
+                        "text" => $mainTitle,
+                        "weight" => "bold",
+                        "size" => "xl",
+                        "margin" => "md"
+                    ],
+                    [
+                        "type" => "separator",
+                        "margin" => "xxl"
+                    ],
+                    [
+                        "type" => "box",
+                        "layout" => "vertical",
+                        "margin" => "xxl",
+                        "spacing" => "sm",
+                        "contents" => $rows
+                    ],
+                    [
+                        "type" => "separator",
+                        "margin" => "xxl"
+                    ],
+                    [
+                        "type" => "box",
+                        "layout" => "vertical",
+                        "margin" => "md",
+                        "contents" => [
+                            [
+                                "type" => "text",
+                                "text" => "系統自動發送・請勿直接回覆",
+                                "size" => "xs",
+                                "color" => "#bbbbbb",
+                                "align" => "center"
+                            ]
+                        ]
+                    ]
+                ]
+            ]
+        ]
+    ];
+}
+
+/**
+ * 發送 Flex Message 的輔助函式 (改用 cURL，無需 Guzzle)
+ */
+function replyFlexMessage($replyToken, $flexContent) {
+    $accessToken = getenv('LINE_CHANNEL_ACCESS_TOKEN');
+    $url = 'https://api.line.me/v2/bot/message/reply';
+
+    $postData = [
+        'replyToken' => $replyToken,
+        'messages'   => [$flexContent]
+    ];
+
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST');
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($postData));
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        'Content-Type: application/json',
+        'Authorization: Bearer ' . $accessToken
+    ]);
+
+    $result = curl_exec($ch);
+    $error = curl_error($ch);
+    curl_close($ch);
+
+    if ($error) {
+        error_log("Reply Flex Error: " . $error);
+    }
+}
+
+/**
+ * 推播 Flex Message 的輔助函式 (改用 cURL，無需 Guzzle)
+ */
+function pushFlexMessage($userId, $flexContent) {
+    $accessToken = getenv('LINE_CHANNEL_ACCESS_TOKEN');
+    $url = 'https://api.line.me/v2/bot/message/push';
+
+    $postData = [
+        'to' => $userId,
+        'messages' => [$flexContent]
+    ];
+
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST');
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($postData));
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        'Content-Type: application/json',
+        'Authorization: Bearer ' . $accessToken
+    ]);
+
+    $result = curl_exec($ch);
+    $error = curl_error($ch);
+    curl_close($ch);
+
+    if ($error) {
+        error_log("Push Flex Error: " . $error);
+    }
+}
+
+/**
  * 取得全域指令清單
  */
 function getGlobalCommands() {
