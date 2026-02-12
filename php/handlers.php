@@ -29,6 +29,7 @@ function handleMessage($event, $db) {
     $text       = $event['message']['text'] ?? ''; 
 
     if (strpos($text, "【請假簽核通知】") !== false || 
+        strpos($text, "【加班申請】") !== false ||
         strpos($text, "【系統提示】") !== false ||
         strpos($text, "【補打卡簽核通知】") !== false ||
         strpos($text, "【系統通知】") !== false) {

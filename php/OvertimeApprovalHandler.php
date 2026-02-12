@@ -22,7 +22,7 @@ class OvertimeApprovalHandler {
                 $uuid = $parts[1];
                 $this->handleApproveOvertime($replyToken, $uuid);
             } else {
-                replyTextMessage($replyToken, "❗請使用格式：/同意加班 加班編號");
+                replyTextMessage($replyToken, "【系統提示】格式錯誤，請使用：/同意加班 加班編號");
             }
             return true;
         }
@@ -39,7 +39,7 @@ class OvertimeApprovalHandler {
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
     
         if (!$row) {
-            replyTextMessage($replyToken, "❌ 找不到待簽核的加班紀錄（編號: {$uuid}）或已簽核。");
+            replyTextMessage($replyToken, "【系統提示】找不到此加班申請，或該單據已完成簽核。");
             return;
         }
     
@@ -60,7 +60,7 @@ class OvertimeApprovalHandler {
             $isSupervisor = $checkStmt->fetchColumn();
         
             if (!$isSupervisor) {
-                replyTextMessage($replyToken, "⛔ 你不是員工 {$row['user_name']} 的主管，無法簽核此加班。");
+                replyTextMessage($replyToken, "【權限不足】您不是員工 {$row['user_name']} 的主管，無法簽核。");
                 return;
             }
         }
@@ -71,24 +71,60 @@ class OvertimeApprovalHandler {
             SET status = 'approved'
             WHERE overtime_uuid = ?
         ");
-        $updateStmt->execute([$uuid]);
+        
+        if ($updateStmt->execute([$uuid])) {
+            // 4. 計算與格式化時間 (準備顯示在卡片上)
+            $start = new DateTime($row['start_at']);
+            $end   = new DateTime($row['end_at']);
+            $diff  = $start->diff($end);
+            $hours = $diff->h + ($diff->i / 60); // 計算時數
 
-        // 4. 計算時數 (僅供顯示用)
-        $start = new DateTime($row['start_at']);
-        $end   = new DateTime($row['end_at']);
-        $diff  = $start->diff($end);
-        $hours = $diff->h + ($diff->i / 60); // 簡單計算小時
+            $dateStr = $start->format('Y-m-d');
+            $timeRange = $start->format('H:i') . ' ~ ' . $end->format('H:i');
 
-        replyTextMessage($replyToken, 
-            "✅ 已核准加班申請\n" .
-            "員工：{$row['user_name']}\n" .
-            "時間：{$row['start_at']} ~ {$row['end_at']}\n" .
-            "時數：約 " . number_format($hours, 1) . " 小時\n" .
-            "說明：{$row['reason']}\n\n" .
-            "此時數已存入補休帳戶。"
-        );
+            // 🔥 升級 1：回覆主管 (Flex Message)
+            $managerFlex = createBusinessFlex(
+                "SUCCESS",           // 頂部狀態
+                "加班簽核成功",        // 主標題
+                [                    // 內容列表
+                    "申請員工" => $row['user_name'],
+                    "加班日期" => $dateStr,
+                    "加班時段" => $timeRange,
+                    "核准時數" => number_format($hours, 1) . " 小時",
+                    "簽核狀態" => "已核准 (Approved)"
+                ],
+                "#06C755"            // 綠色
+            );
+            
+            // 使用 utils.php 的 Flex 回覆函式
+            if (function_exists('replyFlexMessage')) {
+                replyFlexMessage($replyToken, $managerFlex);
+            } else {
+                replyTextMessage($replyToken, "加班簽核成功！");
+            }
 
-        $employeeMsg = "✅ 您的加班申請已核准！\n時間：{$row['start_at']} ~ {$row['end_at']}\n已存入補休時數。";
-        pushMessage($row['user_id'], ["type" => "text", "text" => $employeeMsg]);
+            // 🔥 升級 2：推播通知員工 (Flex Message)
+            $employeeFlex = createBusinessFlex(
+                "NOTIFICATION",      // 頂部狀態
+                "加班申請已通過",      // 主標題
+                [                    // 內容列表
+                    "加班日期" => $dateStr,
+                    "加班時段" => $timeRange,
+                    "核准時數" => number_format($hours, 1) . " 小時",
+                    "說明"     => "您的加班申請已核准，時數已存入補休。"
+                ],
+                "#06C755"            // 綠色
+            );
+
+            // 使用 utils.php 的 Flex 推播函式
+            if (function_exists('pushFlexMessage')) {
+                pushFlexMessage($row['user_id'], $employeeFlex);
+            } else {
+                pushMessage($row['user_id'], ["type" => "text", "text" => "您的加班申請已通過核准。"]);
+            }
+
+        } else {
+            replyTextMessage($replyToken, "【系統錯誤】資料庫更新失敗，請聯繫管理員。");
+        }
     }
 }
