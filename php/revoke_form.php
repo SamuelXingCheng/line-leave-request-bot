@@ -26,9 +26,42 @@ $liffId = getenv('REVOKE_LIFF_ID');
             margin: 0; padding: 16px;
             -webkit-font-smoothing: antialiased;
         }
-        .header { margin-bottom: 20px; padding: 0 4px; }
-        .header h1 { font-size: 1.4rem; font-weight: 700; margin: 0; color: var(--text-main); border-left: 4px solid var(--primary); padding-left: 12px; line-height: 1.2; }
-        .header p { margin: 6px 0 0 16px; font-size: 0.85rem; color: var(--text-sub); }
+        
+        /* 記得 Header 也要設為左右排版 */
+        .header { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: flex-start;
+            margin-bottom: 20px; 
+            padding: 0 4px; 
+        }
+        .header-text h1 { 
+            font-size: 1.4rem; font-weight: 700; margin: 0; 
+            color: var(--text-main); border-left: 4px solid var(--primary); 
+            padding-left: 12px; line-height: 1.2; 
+        }
+        .header-text p { 
+            margin: 6px 0 0 16px; font-size: 0.85rem; color: var(--text-sub); 
+        }
+
+        /* 🔥 請將這段 CSS 加進去，讓按鈕變成綠色文字 + 白色圓鈕 */
+        .btn-back {
+            text-decoration: none;
+            font-size: 0.9rem;
+            color: var(--primary); /* 這就是綠色文字的關鍵 */
+            font-weight: 600;
+            background: #fff;
+            padding: 6px 12px;
+            border-radius: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            white-space: nowrap;
+            display: inline-block; /* 確保按鈕形狀正常 */
+        }
+        
+        .btn-back:active {
+            background-color: #f0fdf4; /* 點擊時有淡淡的綠色背景 */
+            transform: translateY(1px);
+        }
 
         .card { 
             background: #fff; border-radius: 12px; padding: 20px; margin-bottom: 16px;
@@ -84,8 +117,11 @@ $liffId = getenv('REVOKE_LIFF_ID');
 <body>
 
     <div class="header">
-        <h1>請假變更與銷假</h1>
-        <p>Leave Modification & Cancellation</p>
+        <div class="header-text">
+            <h1>請假變更與銷假</h1>
+            <p>Leave Modification & Cancellation</p>
+        </div>
+        <a href="menu.php" class="btn-back">回選單</a>
     </div>
 
     <div id="loading">資料讀取中...</div>
