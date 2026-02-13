@@ -1,5 +1,4 @@
 <?php
-// php/ModificationApprovalHandler.php
 require_once __DIR__ . '/Db.php';
 require_once __DIR__ . '/utils.php';
 
@@ -17,15 +16,12 @@ class ModificationApprovalHandler {
     }
 
     public function handle() {
-        // 指令格式: /同意銷假 {UUID}
         if (strpos($this->text, '/同意銷假') !== 0) return false;
 
         $parts = explode(' ', $this->text);
         if (!isset($parts[1])) return false;
-        $uuid = trim($parts[1]); // 這是 UUID
+        $uuid = trim($parts[1]);
 
-        // 檢查權限 (建議加上主管權限檢查)
-        
         $resultMsg = $this->approveModification($uuid);
         
         if ($this->replyToken) {
@@ -50,88 +46,187 @@ class ModificationApprovalHandler {
         try {
             $this->db->beginTransaction();
 
-            // --- A. 延後放假 (修改 Start) ---
-            if ($mod['type'] === 'delay_start') {
-                $newStart = str_replace('T', ' ', $mod['target_date']); 
-                if (strlen($newStart) == 10) $newStart .= " 09:00:00"; 
-                
-                // 🔥 重新計算時數 (新的開始 ~ 原本的結束)
-                $newHours = calculateHours($newStart, $original['end_at']);
+            // ==========================================
+            // 情境 A: 整筆銷假 (Full Revoke)
+            // ==========================================
+            if ($mod['type'] === 'full_revoke') {
+                $refundAnnual = floatval($original['deduct_annual'] ?? 0);
+                $refundComp   = floatval($original['deduct_comp'] ?? 0);
 
-                $update = $this->db->prepare("UPDATE leave_requests SET start_at = ?, leave_hours = ? WHERE id = ?");
-                $update->execute([$newStart, $newHours, $original['id']]);
+                if ($refundAnnual > 0 || $refundComp > 0) {
+                    $refundStmt = $this->db->prepare("UPDATE users SET annual_leave_hours = annual_leave_hours + ?, comp_leave_hours = comp_leave_hours + ? WHERE user_id = ?");
+                    $refundStmt->execute([$refundAnnual, $refundComp, $original['user_id']]);
+                }
+
+                $updateReq = $this->db->prepare("UPDATE leave_requests SET leave_hours = 0, deduct_annual = 0, deduct_comp = 0, status = 'cancelled', reason = CONCAT(reason, ' (已註銷)') WHERE id = ?");
+                $updateReq->execute([$original['id']]);
+
+                $this->db->prepare("UPDATE leave_modifications SET status = 'approved' WHERE id = ?")->execute([$mod['id']]);
+                
+                $this->db->commit();
+
+                // 🔥【修改重點】發送 Flex Message 給員工 (銷假成功)
+                $flexMsg = [
+                    "type" => "flex",
+                    "altText" => "【系統通知】假單已註銷",
+                    "contents" => [
+                        "type" => "bubble",
+                        "size" => "kilo",
+                        "header" => [
+                            "type" => "box",
+                            "layout" => "vertical",
+                            "backgroundColor" => "#DC3545", // 紅色 (代表刪除/註銷)
+                            "paddingAll" => "lg",
+                            "contents" => [
+                                ["type" => "text", "text" => "假單註銷核准", "weight" => "bold", "size" => "lg", "color" => "#ffffff"]
+                            ]
+                        ],
+                        "body" => [
+                            "type" => "box",
+                            "layout" => "vertical",
+                            "contents" => [
+                                ["type" => "text", "text" => "您的銷假申請主管已核准。", "size" => "sm", "color" => "#666666", "wrap" => true],
+                                ["type" => "separator", "margin" => "md"],
+                                ["type" => "box", "layout" => "vertical", "margin" => "md", "spacing" => "sm", "contents" => [
+                                    $this->buildRow("假單狀態", "已註銷 (作廢)"),
+                                    $this->buildRow("退還時數", "全額退還"),
+                                ]]
+                            ]
+                        ],
+                        "footer" => [
+                            "type" => "box", "layout" => "vertical", "contents" => [
+                                ["type" => "text", "text" => "系統已自動更新您的休假餘額。", "size" => "xs", "color" => "#aaaaaa", "align" => "center"]
+                            ]
+                        ]
+                    ]
+                ];
+                pushMessage($original['user_id'], $flexMsg);
+
+                return "已核准：假單已註銷，時數已退還。";
             }
 
-            // --- B. 提早結束 (修改 End) ---
-            elseif ($mod['type'] === 'early_return') {
+            // ==========================================
+            // 情境 B: 修改時段 (Modify Range / Delay / Early)
+            // ==========================================
+            $newStart = $original['start_at'];
+            $newEnd = $original['end_at'];
+
+            if ($mod['type'] === 'modify_range') {
+                $dates = explode('~', $mod['target_date']);
+                if (count($dates) === 2) {
+                    $newStart = trim($dates[0]);
+                    $newEnd = trim($dates[1]);
+                    if (strlen($newStart) == 16) $newStart .= ":00";
+                    if (strlen($newEnd) == 16) $newEnd .= ":00";
+                }
+            } elseif ($mod['type'] === 'delay_start') {
+                $newStart = str_replace('T', ' ', $mod['target_date']);
+                if (strlen($newStart) == 10) $newStart .= " 09:00:00"; 
+            } elseif ($mod['type'] === 'early_return') {
                 $newEnd = str_replace('T', ' ', $mod['target_date']);
                 if (strlen($newEnd) == 10) $newEnd .= " 18:00:00"; 
-
-                // 🔥 重新計算時數 (原本的開始 ~ 新的結束)
-                $newHours = calculateHours($original['start_at'], $newEnd);
-
-                $update = $this->db->prepare("UPDATE leave_requests SET end_at = ?, leave_hours = ? WHERE id = ?");
-                $update->execute([$newEnd, $newHours, $original['id']]);
             }
 
-            // --- C. 中途銷假 (拆單) ---
-            elseif ($mod['type'] === 'split') {
-                $workDate = new DateTime($mod['target_date']);
-                
-                // 1. 舊單縮短
-                $prevDay = clone $workDate;
-                $prevDay->modify('-1 day');
-                $newEndForOld = $prevDay->format('Y-m-d 17:30:00');
+            $newHours = calculateHours($newStart, $newEnd);
 
-                // 🔥 重新計算舊單縮短後的時數
-                $newHoursForOld = calculateHours($original['start_at'], $newEndForOld);
+            // 退還舊扣抵
+            $oldDeductAnnual = floatval($original['deduct_annual'] ?? 0);
+            $oldDeductComp   = floatval($original['deduct_comp'] ?? 0);
+            $backToUser = $this->db->prepare("UPDATE users SET annual_leave_hours = annual_leave_hours + ?, comp_leave_hours = comp_leave_hours + ? WHERE user_id = ?");
+            $backToUser->execute([$oldDeductAnnual, $oldDeductComp, $original['user_id']]);
 
-                $update = $this->db->prepare("UPDATE leave_requests SET end_at = ?, leave_hours = ? WHERE id = ?");
-                $update->execute([$newEndForOld, $newHoursForOld, $original['id']]);
+            // 重算扣抵
+            $stmtUser = $this->db->prepare("SELECT annual_leave_hours, comp_leave_hours FROM users WHERE user_id = ?");
+            $stmtUser->execute([$original['user_id']]);
+            $userBalance = $stmtUser->fetch(PDO::FETCH_ASSOC);
+            $currentComp = floatval($userBalance['comp_leave_hours']);
+            
+            $newDeductAnnual = 0;
+            $newDeductComp = 0;
 
-                // 2. 只有當「新開始時間」早於「原結束時間」時，才需要插入新單
-                $nextDay = clone $workDate;
-                $nextDay->modify('+1 day');
-                $newStartForNew = $nextDay->format('Y-m-d 08:30:00');
-
-                if ($newStartForNew < $original['end_at']) {
-                    // 🔥 計算新單的時數
-                    $hoursForNew = calculateHours($newStartForNew, $original['end_at']);
-
-                    $insert = $this->db->prepare("
-                        INSERT INTO leave_requests 
-                        (user_id, user_name, leave_type, start_at, end_at, leave_hours, reason, request_group_id, status, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'approved', NOW())
-                    ");
-                    $insert->execute([
-                        $original['user_id'],
-                        $original['user_name'],
-                        $original['leave_type'],
-                        $newStartForNew,
-                        $original['end_at'],
-                        $hoursForNew, // 寫入新計算的時數
-                        $original['reason'] . " (銷假拆單)",
-                        $original['request_group_id']
-                    ]);
+            if (strpos($original['leave_type'], '特休') !== false) {
+                if ($currentComp >= $newHours) {
+                    $newDeductComp = $newHours;
+                } else {
+                    $newDeductComp = $currentComp;
+                    $newDeductAnnual = $newHours - $currentComp;
                 }
+            } else if (strpos($original['leave_type'], '補休') !== false) {
+                $newDeductComp = $newHours;
             }
 
-            // 更新申請狀態
-            $stmt = $this->db->prepare("UPDATE leave_modifications SET status = 'approved' WHERE id = ?");
-            $stmt->execute([$mod['id']]);
+            // 新時數扣款
+            if ($newDeductComp > 0 || $newDeductAnnual > 0) {
+                $reDeduct = $this->db->prepare("UPDATE users SET annual_leave_hours = annual_leave_hours - ?, comp_leave_hours = comp_leave_hours - ? WHERE user_id = ?");
+                $reDeduct->execute([$newDeductAnnual, $newDeductComp, $original['user_id']]);
+            }
 
+            // 更新假單
+            $update = $this->db->prepare("UPDATE leave_requests SET start_at = ?, end_at = ?, leave_hours = ?, deduct_annual = ?, deduct_comp = ? WHERE id = ?");
+            $update->execute([$newStart, $newEnd, $newHours, $newDeductAnnual, $newDeductComp, $original['id']]);
+
+            $this->db->prepare("UPDATE leave_modifications SET status = 'approved' WHERE id = ?")->execute([$mod['id']]);
+            
             $this->db->commit();
             
-            pushMessage($original['user_id'], [
-                "type" => "text", 
-                "text" => "【系統通知】您的銷假/修改申請已核准，特休額度已重新計算並歸檔。"
-            ]);
+            // 🔥【修改重點】發送 Flex Message 給員工 (變更成功)
+            $displayStart = substr($newStart, 0, 16); // 去除秒數
+            $displayEnd = substr($newEnd, 0, 16);
+            
+            $flexMsg = [
+                "type" => "flex",
+                "altText" => "【系統通知】假單變更核准",
+                "contents" => [
+                    "type" => "bubble",
+                    "size" => "kilo",
+                    "header" => [
+                        "type" => "box",
+                        "layout" => "vertical",
+                        "backgroundColor" => "#06C755", // LINE 綠色 (代表更新成功)
+                        "paddingAll" => "lg",
+                        "contents" => [
+                            ["type" => "text", "text" => "假單變更核准", "weight" => "bold", "size" => "lg", "color" => "#ffffff"]
+                        ]
+                    ],
+                    "body" => [
+                        "type" => "box",
+                        "layout" => "vertical",
+                        "contents" => [
+                            ["type" => "text", "text" => "您的請假時段變更申請已核准。", "size" => "sm", "color" => "#666666", "wrap" => true],
+                            ["type" => "separator", "margin" => "md"],
+                            ["type" => "box", "layout" => "vertical", "margin" => "md", "spacing" => "sm", "contents" => [
+                                $this->buildRow("變更後開始", $displayStart),
+                                $this->buildRow("變更後結束", $displayEnd),
+                                $this->buildRow("修正時數", $newHours . " 小時"),
+                            ]]
+                        ]
+                    ],
+                    "footer" => [
+                        "type" => "box", "layout" => "vertical", "contents" => [
+                            ["type" => "text", "text" => "系統已自動校正您的休假餘額。", "size" => "xs", "color" => "#aaaaaa", "align" => "center"]
+                        ]
+                    ]
+                ]
+            ];
+            pushMessage($original['user_id'], $flexMsg);
 
-            return "【核准成功】資料庫時數已更新。";
+            return "已核准：假單時段已更新，餘額已重新計算。";
 
         } catch (Exception $e) {
             $this->db->rollBack();
-            return "【系統錯誤】" . $e->getMessage();
+            return "系統錯誤：" . $e->getMessage();
         }
+    }
+
+    // 輔助函式：快速產生 Flex Row
+    private function buildRow($label, $value) {
+        return [
+            "type" => "box",
+            "layout" => "baseline",
+            "contents" => [
+                ["type" => "text", "text" => $label, "color" => "#aaaaaa", "size" => "sm", "flex" => 2],
+                ["type" => "text", "text" => $value, "wrap" => true, "color" => "#333333", "size" => "sm", "flex" => 4]
+            ]
+        ];
     }
 }

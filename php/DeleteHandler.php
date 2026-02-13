@@ -19,39 +19,28 @@ class DeleteHandler {
     }
 
     public function handle() {
-        // 1. 刪除請假
         if (strpos($this->userText, "/刪除請假") === 0) {
             $parts = explode(" ", $this->userText);
-
             if (count($parts) === 2) {
-                $requestGroupId = $parts[1];
-                $this->handleDeleteRequest($requestGroupId);
+                $this->handleDeleteRequest($parts[1]);
             } else {
                 replyTextMessage($this->replyToken, "❗請使用格式：/刪除請假 [請假ID]");
             }
             return true;
         }
 
-        // 2. 🔥【新增】刪除打卡
         if (strpos($this->userText, "/刪除打卡") === 0) {
             $parts = explode(" ", $this->userText);
-
             if (count($parts) === 2) {
-                $uuid = $parts[1];
-                $this->handleDeleteAttendance($uuid);
-            } else {
-                replyTextMessage($this->replyToken, "❗請使用格式：/刪除打卡 [打卡編號]");
+                $this->handleDeleteAttendance($parts[1]);
             }
             return true;
         }
 
-        // 3. 🔥【新增】刪除加班
         if (strpos($this->userText, "/刪除加班") === 0) {
             $parts = explode(" ", $this->userText);
             if (count($parts) === 2) {
                 $this->handleDeleteOvertime($parts[1]);
-            } else {
-                replyTextMessage($this->replyToken, "❗請使用格式：/刪除加班 [加班編號]");
             }
             return true;
         }
@@ -60,9 +49,10 @@ class DeleteHandler {
     }
 
     /**
-     * 刪除請假 (原有功能)
+     * 刪除請假並退還時數
      */
     private function handleDeleteRequest($requestGroupId) {
+        // 1. 查詢紀錄與扣抵明細
         $stmt = $this->db->prepare("SELECT * FROM leave_requests WHERE request_group_id = ?");
         $stmt->execute([$requestGroupId]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -72,115 +62,114 @@ class DeleteHandler {
             return;
         }
 
+        // 2. 檢查權限與狀態
+        $totalRefundAnnual = 0;
+        $totalRefundComp = 0;
+
         foreach ($rows as $row) {
             if ($row['user_id'] !== $this->userId) {
                 replyTextMessage($this->replyToken, "⚠️ 你無權刪除此請假紀錄。");
                 return;
             }
-        }
-
-        $hasPending = false;
-        foreach ($rows as $row) {
-            if ($row['status'] === "pending") {
-                $hasPending = true;
-                break;
+            if ($row['status'] !== "pending") {
+                replyTextMessage($this->replyToken, "❌ 此請假已簽核完成，無法撤回。");
+                return;
             }
+            // 累計需要退還的時數
+            $totalRefundAnnual += floatval($row['deduct_annual'] ?? 0);
+            $totalRefundComp   += floatval($row['deduct_comp'] ?? 0);
         }
-        if (!$hasPending) {
-            replyTextMessage($this->replyToken, "❌ 此請假已簽核完成，無法刪除。");
-            return;
+
+        try {
+            // 3. 🔥 開啟交易進行退款與刪除
+            $this->db->beginTransaction();
+
+            // (A) 退還時數到使用者的存摺
+            if ($totalRefundAnnual > 0 || $totalRefundComp > 0) {
+                $updUser = $this->db->prepare("
+                    UPDATE users 
+                    SET annual_leave_hours = annual_leave_hours + ?, 
+                        comp_leave_hours = comp_leave_hours + ? 
+                    WHERE user_id = ?
+                ");
+                $updUser->execute([$totalRefundAnnual, $totalRefundComp, $this->userId]);
+            }
+
+            // (B) 刪除簽核關聯
+            $delApp = $this->db->prepare("
+                DELETE FROM leave_approvals 
+                WHERE request_id IN (SELECT id FROM leave_requests WHERE request_group_id = ?)
+            ");
+            $delApp->execute([$requestGroupId]);
+
+            // (C) 刪除假單紀錄
+            $delReq = $this->db->prepare("DELETE FROM leave_requests WHERE request_group_id = ?");
+            $delReq->execute([$requestGroupId]);
+
+            $this->db->commit();
+
+            // 成功訊息並載入最新列表
+            $msg = "✅ 申請已撤回，時數已退還：\n- 特休：" . $totalRefundAnnual . " 小時\n- 補休：" . $totalRefundComp . " 小時";
+            $this->reloadList($msg);
+
+        } catch (Exception $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            replyTextMessage($this->replyToken, "【系統錯誤】刪除失敗：" . $e->getMessage());
         }
+    }
 
-        $stmt = $this->db->prepare("
-            DELETE FROM leave_approvals 
-            WHERE request_id IN (
-                SELECT id FROM leave_requests WHERE request_group_id = ?
-            )
-        ");
-        $stmt->execute([$requestGroupId]);
-
-        $stmt = $this->db->prepare("DELETE FROM leave_requests WHERE request_group_id = ?");
-        $stmt->execute([$requestGroupId]);
-
-        // 嘗試重新載入列表
+    /**
+     * 輔助函式：重新整理請假列表
+     */
+    private function reloadList($prefix) {
         $session  = new UserSession($this->userId);
         $startStr = $session->get("last_query_start");
         $endStr   = $session->get("last_query_end");
 
         if ($startStr && $endStr) {
-            $startDate = new DateTimeImmutable($startStr);
-            $endDate   = new DateTimeImmutable($endStr);
             $queryHandler = new LeaveQueryHandler($this->userId, "", $this->replyToken);
-            $queryHandler->handleWithDateRange($startDate, $endDate, "請假紀錄已成功刪除。以下為最新紀錄：");
+            $queryHandler->handleWithDateRange(new DateTimeImmutable($startStr), new DateTimeImmutable($endStr), $prefix);
         } else {
-            replyTextMessage($this->replyToken, "請假紀錄已刪除");
+            replyTextMessage($this->replyToken, $prefix);
         }
     }
 
-    /**
-     * 🔥【新增】刪除打卡
-     */
     private function handleDeleteAttendance($uuid) {
-        // 1. 查詢紀錄
         $stmt = $this->db->prepare("SELECT user_id, approval_status FROM attendance_logs WHERE attendance_uuid = ?");
         $stmt->execute([$uuid]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if (!$row) {
-            replyTextMessage($this->replyToken, "❌ 找不到該筆打卡紀錄。");
+        if (!$row || $row['user_id'] !== $this->userId) {
+            replyTextMessage($this->replyToken, "❌ 找不到紀錄或權限不足。");
             return;
         }
 
-        // 2. 檢查權限
-        if ($row['user_id'] !== $this->userId) {
-            replyTextMessage($this->replyToken, "⚠️ 你無權刪除此紀錄。");
-            return;
-        }
-
-        // 3. 檢查狀態
         if ($row['approval_status'] !== 'pending') {
-            replyTextMessage($this->replyToken, "❌ 只能刪除「待審核」的打卡紀錄。");
+            replyTextMessage($this->replyToken, "❌ 只能刪除「待審核」的紀錄。");
             return;
         }
 
-        // 4. 執行刪除
-        $delStmt = $this->db->prepare("DELETE FROM attendance_logs WHERE attendance_uuid = ?");
-        $delStmt->execute([$uuid]);
-
+        $this->db->prepare("DELETE FROM attendance_logs WHERE attendance_uuid = ?")->execute([$uuid]);
         replyTextMessage($this->replyToken, "已成功刪除該筆打卡申請。");
     }
 
-    /**
-     * 🔥【新增】刪除加班
-     */
     private function handleDeleteOvertime($uuid) {
-        // 1. 查詢
         $stmt = $this->db->prepare("SELECT user_id, status FROM overtime_requests WHERE overtime_uuid = ?");
         $stmt->execute([$uuid]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if (!$row) {
-            replyTextMessage($this->replyToken, "❌ 找不到該筆加班紀錄。");
+        if (!$row || $row['user_id'] !== $this->userId) {
+            replyTextMessage($this->replyToken, "❌ 找不到紀錄或權限不足。");
             return;
         }
 
-        // 2. 權限
-        if ($row['user_id'] !== $this->userId) {
-            replyTextMessage($this->replyToken, "⚠️ 你無權刪除此紀錄。");
-            return;
-        }
-
-        // 3. 狀態
         if ($row['status'] !== 'pending') {
-            replyTextMessage($this->replyToken, "❌ 只能刪除「待審核」的加班紀錄。");
+            replyTextMessage($this->replyToken, "❌ 只能刪除「待審核」的紀錄。");
             return;
         }
 
-        // 4. 刪除
-        $delStmt = $this->db->prepare("DELETE FROM overtime_requests WHERE overtime_uuid = ?");
-        $delStmt->execute([$uuid]);
-
+        // 加班刪除不需退款，因為加班是「核准後」才加時數
+        $this->db->prepare("DELETE FROM overtime_requests WHERE overtime_uuid = ?")->execute([$uuid]);
         replyTextMessage($this->replyToken, "🗑️ 已成功刪除該筆加班申請。");
     }
-    
 }

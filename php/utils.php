@@ -355,22 +355,21 @@ function formatHoursAndDays($hours) {
  * 取得請假統計 (商務優化版：直接讀取預算時數欄位)
  */
 function getLeaveSummary($userId) {
-    $pdo = Database::getConnection();
-    $currentYear = date('Y');
+    $pdo = Database::getConnection(); //
+    $currentYear = date('Y'); //
 
-    // 1. 取得員工入職日期並計算年假總額度
-    $stmt = $pdo->prepare("SELECT start_date FROM users WHERE user_id = ?");
+    // 1. 從 users 表抓取：姓名、法定總額、特休餘額、補休餘額
+    $stmt = $pdo->prepare("SELECT name, entitled_annual_hours, annual_leave_hours, comp_leave_hours FROM users WHERE user_id = ?");
     $stmt->execute([$userId]);
-    $hireDate = $stmt->fetchColumn();
+    $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    $entitledHours = 0;
-    if ($hireDate) {
-        $entitledDays = calculateAnnualLeaveDays($hireDate);
-        $entitledHours = $entitledDays * 8; // 換算成總小時
-    }
+    // 取得數據庫中的真實數值
+    $entitledAnnual = floatval($user['entitled_annual_hours'] ?? 0); // 年度總額
+    $remainingAnnual = floatval($user['annual_leave_hours'] ?? 0);   // 特休餘額
+    $remainingComp   = floatval($user['comp_leave_hours'] ?? 0);     // 補休餘額
 
-    // 2. 統計各假別已用時數 (🔥 改為直接加總 leave_hours)
-    // 這樣做最精準，且自動包含「銷假」修改後的結果
+    // 2. 統計「已用」時數 (僅供 Flex Message 顯示參考)
+    // 雖然我們可以透過 (總額 - 剩餘) 算出，但撈取假單紀錄能確保假別明細正確
     $stmt = $pdo->prepare("
         SELECT leave_type, COALESCE(SUM(leave_hours), 0) as hours
         FROM leave_requests
@@ -378,28 +377,26 @@ function getLeaveSummary($userId) {
           AND YEAR(start_at) = ?
         GROUP BY leave_type
     ");
-    $stmt->execute([$userId, $currentYear]);
-    $leaveUsage = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+    $stmt->execute([$userId, $currentYear]); //
+    $leaveUsage = $stmt->fetchAll(PDO::FETCH_KEY_PAIR); //
 
-    // 特休數據
-    $usedAnnual = $leaveUsage['特休假'] ?? $leaveUsage['特休'] ?? 0;
-    $remainingAnnual = max(0, $entitledHours - $usedAnnual);
+    // 已經請掉的特休 (顯示用)
+    $usedAnnual = $entitledAnnual - $remainingAnnual;
 
-    // 3. 補休計算 (同樣建議 overtime_requests 也應具備 hours 欄位)
-    // 如果您的加班單還沒有 hours 欄位，請同步增加
+    // 3. 補休總額計算 (今年累計獲得的加班時數)
     $stmt = $pdo->prepare("
         SELECT COALESCE(SUM(hours), 0)
         FROM overtime_requests
         WHERE user_id = ? AND status = 'approved'
           AND YEAR(start_at) = ?
     ");
-    $stmt->execute([$userId, $currentYear]);
-    $earnedComp = $stmt->fetchColumn();
+    $stmt->execute([$userId, $currentYear]); //
+    $earnedComp = floatval($stmt->fetchColumn());
 
-    $usedComp = $leaveUsage['補休假'] ?? $leaveUsage['補休'] ?? 0;
-    $remainingComp = max(0, $earnedComp - $usedComp);
+    // 已請掉的補休
+    $usedComp = $earnedComp - $remainingComp;
 
-    // 4. 取得所有請假明細 (用於顯示最近的紀錄)
+    // 4. 取得明細 (維持不變)
     $stmt = $pdo->prepare("
         SELECT start_at, end_at, leave_type, reason, status, leave_hours
         FROM leave_requests
@@ -407,20 +404,20 @@ function getLeaveSummary($userId) {
           AND YEAR(start_at) = ?
         ORDER BY start_at DESC 
     ");
-    $stmt->execute([$userId, $currentYear]);
-    $allDetails = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $stmt->execute([$userId, $currentYear]); //
+    $allDetails = $stmt->fetchAll(PDO::FETCH_ASSOC); //
 
     return [
-        "entitledAnnual"  => $entitledHours,
-        "usedAnnual"      => $usedAnnual,
-        "remainingAnnual" => $remainingAnnual,
+        "entitledAnnual"  => $entitledAnnual,  // 法定總額 (由資料庫欄位提供)
+        "usedAnnual"      => $usedAnnual,      // 已請 (計算所得)
+        "remainingAnnual" => $remainingAnnual, // 剩餘 (由資料庫欄位提供)
         
-        "earnedComp"      => $earnedComp,
-        "usedComp"        => $usedComp,
-        "remainingComp"   => $remainingComp,
+        "earnedComp"      => $earnedComp,      // 累計加班
+        "usedComp"        => $usedComp,        // 已用補休
+        "remainingComp"   => $remainingComp,   // 補休餘額
         
-        "summary"         => $leaveUsage, // 各假別小時統計
-        "allDetails"      => $allDetails  // 包含 leave_hours 的明細
+        "summary"         => $leaveUsage,
+        "allDetails"      => $allDetails
     ];
 }
 
