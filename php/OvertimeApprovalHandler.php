@@ -70,7 +70,7 @@ class OvertimeApprovalHandler {
             // (A) 更新加班單狀態
             $updateStmt = $this->db->prepare("
                 UPDATE overtime_requests 
-                SET status = 'approved', approver_id = ?, approved_at = NOW()
+                SET status = 'approved'
                 WHERE overtime_uuid = ?
             ");
             $updateStmt->execute([$this->lineId, $uuid]);
