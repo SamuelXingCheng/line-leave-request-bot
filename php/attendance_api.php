@@ -130,24 +130,10 @@ if ($is_in_range || $is_qr_valid) {
 } else {
     // === 異常情境 (距離太遠) ===
     $isSuccess = false;
-    $dbStatus = "fail";    // 配合您的資料庫 ENUM
+    $dbStatus = "fail";    
     $dbApproval = "pending";
 
-    // 產生給員工的警告卡片
-    $employeeFlex = createBusinessFlex(
-        "WARNING",
-        "打卡異常通知",
-        [
-            "員工姓名" => $userName,
-            "打卡類型" => $displayMode, // 🔥 修正：使用 $displayMode
-            "異常原因" => "不在允許範圍內",
-            "距離差距" => intval($min_distance) . " 公尺",
-            "目前狀態" => "已送出申請，待主管簽核"
-        ],
-        "#FF334B" // 紅色
-    );
-
-    // 處理主管簽核
+    // 處理主管簽核名單
     $stmt = $db->prepare("
         SELECT u.user_id, u.name 
         FROM user_supervisors us
@@ -157,12 +143,36 @@ if ($is_in_range || $is_qr_valid) {
     $stmt->execute([$userId]);
     $supervisors = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+    // 產生商務版審核連結
     $botId = getenv("LINE_BOT_ID");
-    // 使用新指令 /同意補卡
     $approvalCommand = "/同意補卡 {$uuid}"; 
     $approvalLink = "line://oaMessage/@{$botId}/?" . rawurlencode($approvalCommand);
     
-    // 如果有主管，這裡也可以順便產生給主管的 Flex (稍後推播)
+    // 取得備註原因
+    $finalReason = $is_qr_valid ? "QR Code 驗證" : ($reason ?: "無");
+
+    // 🔥 1. 第一則訊息：正式簽核通知 (給員工轉傳用)
+    $mainMsgText = "【打卡異常簽核通知】\n" .
+                   "────────────────\n" .
+                   "申請人員｜{$userName}\n" .
+                   "打卡類型｜{$displayMode}\n" .
+                   "異常原因｜不在允許範圍內\n" .
+                   "距離差距｜" . intval($min_distance) . " 公尺\n" .
+                   "打卡時間｜{$displayTime}\n" .
+                   "備註說明｜{$finalReason}\n" .
+                   "────────────────\n" .
+                   "若同意補卡，請點擊下方連結簽核：\n" .
+                   $approvalLink;
+
+    // 🔥 2. 第二則訊息：主管提示
+    $supervisorMsgText = "【系統提示】\n────────────────\n請將上方訊息轉傳給：";
+    if (!empty($supervisors)) {
+        // 抓取所有主管的姓名並串接
+        $names = array_column($supervisors, 'name');
+        $supervisorMsgText .= "\n─ " . implode("\n─ ", $names);
+    } else {
+        $supervisorMsgText .= "\n尚未設定您的直屬主管，請聯繫管理員。";
+    }
 }
 
 // --- 寫入資料庫 ---
@@ -190,33 +200,41 @@ try {
     // --- 推播通知 (Flex Message) ---
     
     // 1. 推播給員工
+    // 1. 先推播打卡結果卡片給員工 (成功綠卡 或 異常紅卡)
     if ($userId && !empty($employeeFlex)) {
         pushFlexMessage($userId, $employeeFlex);
     }
 
-    // 2. 如果異常，推播給主管
-    if (!$isSuccess && !empty($supervisors)) {
-        foreach ($supervisors as $sup) {
-            // 製作給主管的簽核卡片 (帶有連結)
-            $managerFlex = createBusinessFlex(
-                "APPROVAL NEEDED",
-                "打卡異常簽核",
-                [
-                    "申請員工" => $userName,
-                    "打卡類型" => $displayMode, // 🔥 修正：使用 $displayMode
-                    "異常原因" => "GPS 定位偏差 (" . intval($min_distance) . "m)",
-                    "打卡時間" => $displayTime,
-                    "操作"     => "請點擊下方連結進行簽核"
-                ],
-                "#FF9800" // 橘色 (警告)
-            );
-            
-            pushFlexMessage($sup['user_id'], $managerFlex);
-            pushMessage($sup['user_id'], [
-                "type" => "text", 
-                "text" => "👉 點此簽核：\n" . $approvalLink
-            ]);
+    // 2. 如果異常，產生轉傳文字並推播給【員工自己】
+    if (!$isSuccess && $userId) {
+        // 取得備註原因
+        $finalReason = $is_qr_valid ? "QR Code 驗證" : ($reason ?: "無");
+
+        // 🔥 第一則訊息：正式簽核通知 (給員工轉傳用)
+        $mainMsgText = "【打卡異常簽核通知】\n" .
+                       "────────────────\n" .
+                       "申請人員｜{$userName}\n" .
+                       "打卡類型｜{$displayMode}\n" .
+                       "異常原因｜不在允許範圍內\n" .
+                       "距離差距｜" . intval($min_distance) . " 公尺\n" .
+                       "打卡時間｜{$displayTime}\n" .
+                       "備註說明｜{$finalReason}\n" .
+                       "────────────────\n" .
+                       "若同意補卡，請點擊下方連結簽核：\n" .
+                       $approvalLink;
+
+        // 🔥 第二則訊息：主管提示
+        $supervisorMsgText = "【系統提示】\n────────────────\n請將上方訊息轉傳給：";
+        if (!empty($supervisors)) {
+            $names = array_column($supervisors, 'name'); // 快速抓出所有主管的姓名
+            $supervisorMsgText .= "\n─ " . implode("\n─ ", $names);
+        } else {
+            $supervisorMsgText .= "\n尚未設定您的直屬主管，請聯繫管理員。";
         }
+
+        // 依序推播這兩則文字訊息給員工
+        pushMessage($userId, ['type' => 'text', 'text' => $mainMsgText]);
+        pushMessage($userId, ['type' => 'text', 'text' => $supervisorMsgText]);
     }
 
 } catch (Exception $e) {
