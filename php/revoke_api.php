@@ -157,9 +157,13 @@ try {
         }
 
         // 4. 準備商務風格通知訊息
-        $botId = getenv("LINE_BOT_ID");
-        $approvalCommand = "/同意銷假 {$uuid}";
-        $approvalLink = "line://oaMessage/@{$botId}/?" . rawurlencode($approvalCommand);
+        // $botId = getenv("LINE_BOT_ID");
+        // $approvalCommand = "/同意銷假 {$uuid}";
+        // $approvalLink = "line://oaMessage/@{$botId}/?" . rawurlencode($approvalCommand);
+
+        // 假設您的審核頁 LIFF ID 是 xxx-review
+        $supLiffId = getenv("SUPERVISOR_LIFF_ID");
+        $approvalLink = "https://liff.line.me/{$supLiffId}?tab=mod&highlight={$uuid}";
 
         // 定義商務用語
         $typeMapping = [

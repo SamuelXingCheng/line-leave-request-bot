@@ -321,28 +321,69 @@ function calculateOvertimeHours($startStr, $endStr) {
     return max(0, round($totalHours, 1));
 }
 
-// 特休天數計算：根據年資計算特休天數
-function calculateAnnualLeaveDays($hireDate, $today = null) {
-    if (!$today) $today = new DateTime();
+// 定義勞基法「滿N年」的法定特休天數
+function getLawDays($years) {
+    if ($years >= 10) return min(15 + floor($years - 9), 30); // 滿10年加1天，上限30天
+    if ($years >= 5)  return 15;
+    if ($years >= 3)  return 14;
+    if ($years >= 2)  return 10;
+    if ($years >= 1)  return 7;
+    if ($years >= 0.5) return 3; // 滿半年
+    return 0;
+}
+
+// 特休天數計算：精確曆年制 (包含非1號到職的天數比例)
+function calculateAnnualLeaveDays($hireDate, $targetYear = null) {
+    if (!$targetYear) $targetYear = (int)date('Y');
+    
     $hire = new DateTime($hireDate);
+    $hireYear = (int)$hire->format('Y');
+    $hireMonth = (int)$hire->format('n');
+    $hireDay = (int)$hire->format('j');
 
-    // 年資（到今年 1/1 為基準）
-    $years = $hire->diff(new DateTime($today->format('Y-01-01')))->y;
+    // 計算在目標年度時，會達成的年資
+    $yearsOfService = $targetYear - $hireYear;
 
-    // 未滿一年 → 用比例表
-    if ($years < 1) {
-        $month = (int)$hire->format('n'); // 到職月份
-        $map = [1=>7, 2=>6, 3=>5.5, 4=>5, 5=>4.5, 6=>4,
-                7=>3.5, 8=>3, 9=>2.5, 10=>2, 11=>1.5, 12=>1];
-        return $map[$month] ?? 0;
+    // 若目標年度根本還沒到職，或第一年還未滿半年 (此處主要處理滿1年以上，滿半年曆年制較為特殊，若需精算可再擴充)
+    if ($yearsOfService < 1) {
+        return 0; 
     }
 
-    // 滿一年以上 → 勞基法表
-    if ($years < 2) return 7;
-    if ($years < 3) return 10;
-    if ($years < 5) return 14;
-    if ($years < 10) return 15;
-    return min(16 + ($years - 10), 30); // 最多30天
+    // 取得法定天數
+    $prevDays = getLawDays($yearsOfService - 1); // 前一次滿週年的假
+    $currentDays = getLawDays($yearsOfService);  // 這次滿週年的假
+
+    // === 計算「週年紀念日前」的時間比例 ===
+    
+    // 1. 完整月數 (例如 3/15 到職，前面有 1、2 月共 2 個完整月)
+    $monthsBefore = $hireMonth - 1;
+
+    // 2. 零星天數 (例如 3/15 到職，當月在週年前有 14 天)
+    $daysBefore = $hireDay - 1;
+
+    // 3. 取得該「到職月份」的總天數 (用來算天數比例，例如3月有31天)
+    $daysInAnniversaryMonth = (int)date('t', strtotime("$targetYear-$hireMonth-01"));
+
+    // 4. 計算佔全年的比例：(月數 + 天數/當月天數) / 12
+    $ratioBefore = ($monthsBefore + ($daysBefore / $daysInAnniversaryMonth)) / 12;
+
+    // === 套用勞動部曆年制公式 ===
+    
+    // 前段天數 ＝ 比例 * 去年年資假
+    $part1 = $ratioBefore * $prevDays;
+    
+    // 後段天數 ＝ 今年年資假 - (比例 * 今年年資假)
+    $part2 = $currentDays - ($ratioBefore * $currentDays);
+
+    // 加總特休天數
+    $totalDays = $part1 + $part2;
+
+    // === 處理小數點進位規則 ===
+    // 依截圖：「先計算至小數第2位，再判斷小數第2位若大於1則進位」
+    // 這裡我們直接用 ceil 將數字乘以 10 後進位，再除以 10 (例如 9.51 -> 96 / 10 -> 9.6)
+    $roundedDays = ceil(round($totalDays, 2) * 10) / 10;
+
+    return $roundedDays;
 }
 
 function formatHoursAndDays($hours) {

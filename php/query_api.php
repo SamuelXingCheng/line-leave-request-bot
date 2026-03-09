@@ -9,28 +9,70 @@ error_reporting(E_ALL);
 
 header('Content-Type: application/json; charset=utf-8');
 
+// ==========================================
+// 🔥 內建最新的勞動部曆年制公式
+// ==========================================
+if (!function_exists('getLawDays')) {
+    function getLawDays($years) {
+        if ($years >= 10) return min(15 + floor($years - 9), 30); 
+        if ($years >= 5)  return 15;
+        if ($years >= 3)  return 14;
+        if ($years >= 2)  return 10;
+        if ($years >= 1)  return 7;
+        if ($years >= 0.5) return 3; 
+        return 0;
+    }
+}
+
+if (!function_exists('calculateAnnualLeaveDaysStrict')) {
+    function calculateAnnualLeaveDaysStrict($hireDate, $targetYear) {
+        if (empty($hireDate)) return 0;
+        $hire = new DateTime($hireDate);
+        $hireYear = (int)$hire->format('Y');
+        $hireMonth = (int)$hire->format('n');
+        $hireDay = (int)$hire->format('j');
+
+        $yearsOfService = $targetYear - $hireYear;
+        if ($yearsOfService < 1) return 0; 
+
+        $prevDays = getLawDays($yearsOfService - 1); 
+        $currentDays = getLawDays($yearsOfService);  
+
+        $monthsBefore = $hireMonth - 1;
+        $daysBefore = $hireDay - 1;
+        $daysInAnniversaryMonth = (int)date('t', strtotime("$targetYear-$hireMonth-01"));
+        
+        $ratioBefore = ($monthsBefore + ($daysBefore / $daysInAnniversaryMonth)) / 12;
+
+        $part1 = $ratioBefore * $prevDays;
+        $part2 = $currentDays - ($ratioBefore * $currentDays);
+        $totalDays = $part1 + $part2;
+
+        return ceil(round($totalDays, 2) * 10) / 10;
+    }
+}
+// ==========================================
+
 try {
     $db = Database::getConnection();
     $action = $_GET['action'] ?? '';
 
-    // ==========================================
-    // 功能 A: 查詢個人請假紀錄
-    // ==========================================
     if ($action === 'user_history') {
         $userId = $_GET['userId'] ?? '';
         if (empty($userId)) throw new Exception("缺少 userId");
 
-        // 1. 查詢使用者目前的「剩餘餘額」
-        $stmtUser = $db->prepare("SELECT annual_leave_hours, comp_leave_hours FROM users WHERE user_id = ?");
+        // 1. 查詢使用者的「到職日」、「補休餘額」與「歷年剩餘特休」
+        $stmtUser = $db->prepare("SELECT start_date, comp_leave_hours, last_year_annual_hours FROM users WHERE user_id = ?");
         $stmtUser->execute([$userId]);
         $user = $stmtUser->fetch(PDO::FETCH_ASSOC);
 
-        $remainingAnnual = floatval($user['annual_leave_hours'] ?? 0);
-        $remainingComp   = floatval($user['comp_leave_hours'] ?? 0);
+        $hireDate = $user['start_date'] ?? null;
+        $remainingComp = floatval($user['comp_leave_hours'] ?? 0); 
+        // 抓取歷年保留下來的特休 (預設0)
+        $lastYearAnnual = floatval($user['last_year_annual_hours'] ?? 0); 
 
-        // 2. 查詢「今年已核准」的總時數 (用來回推 應得/累積)
-        // 注意：這裡只統計 'approved'，因為 'pending' 還沒扣款
-        $currentYear = date('Y');
+        // 2. 查詢「今年已核准」的請假總時數
+        $currentYear = (int)date('Y');
         $sqlStat = "
             SELECT leave_type, SUM(leave_hours) as total_used 
             FROM leave_requests 
@@ -41,38 +83,69 @@ try {
         ";
         $stmtStat = $db->prepare($sqlStat);
         $stmtStat->execute([$userId, "$currentYear%"]);
-        $usedStats = $stmtStat->fetchAll(PDO::FETCH_KEY_PAIR); // [ '特休' => 10, '病假' => 4 ]
+        $usedStats = $stmtStat->fetchAll(PDO::FETCH_KEY_PAIR);
 
-        // 3. 計算各項數值
-        $usedAnnual = floatval($usedStats['特休假'] ?? $usedStats['特休'] ?? 0);
-        $usedComp   = floatval($usedStats['補休假'] ?? $usedStats['補休'] ?? 0);
+        // 3. 取得各假別的「已用時數」
+        $usedAnnual   = floatval($usedStats['特休假'] ?? $usedStats['特休'] ?? 0);
+        $usedComp     = floatval($usedStats['補休假'] ?? $usedStats['補休'] ?? 0);
+        $usedPersonal = floatval($usedStats['事假'] ?? 0);
+        $usedSick     = floatval($usedStats['病假'] ?? 0);
 
-        // 推算「年度總額度」 = 剩餘 + 已用
-        $entitledAnnual = $remainingAnnual + $usedAnnual;
-        $earnedComp     = $remainingComp + $usedComp;
+        // 4. 動態計算當下最新的「法定應得總時數」(只有今年的份)
+        $entitledAnnual = 0;
+        if ($hireDate) {
+            $entitledDays = calculateAnnualLeaveDaysStrict($hireDate, $currentYear);
+            $entitledAnnual = $entitledDays * 8; // 換算成小時
+        }
 
-        // 4. 查詢列表紀錄 (維持原本邏輯)
+        // 5. 結算最新「剩餘特休」
+        // 公式：(歷年保留 + 今年應得) - 今年已請 = 最終剩餘
+        $totalEntitled = $lastYearAnnual + $entitledAnnual;
+        $remainingAnnual = max(0, $totalEntitled - $usedAnnual);
+
+        // 🔥 6. 同步更新回資料庫 (把所有狀態寫入 users 表格)
+        $updateStmt = $db->prepare("
+            UPDATE users 
+            SET entitled_annual_hours = ?, 
+                annual_leave_hours = ?,
+                used_annual_hours = ?,
+                used_personal_hours = ?,
+                used_sick_hours = ?
+            WHERE user_id = ?
+        ");
+        $updateStmt->execute([
+            $entitledAnnual,   // 今年法定應得
+            $remainingAnnual,  // 最終剩餘特休
+            $usedAnnual,       // 今年已請特休
+            $usedPersonal,     // 今年已請事假
+            $usedSick,         // 今年已請病假
+            $userId
+        ]);
+
+        // 推算補休累積
+        $earnedComp = $remainingComp + $usedComp;
+
+        // 7. 查詢列表紀錄 
         $sqlList = "SELECT * FROM leave_requests WHERE user_id = ? ORDER BY start_at DESC LIMIT 100";
         $stmtList = $db->prepare($sqlList);
         $stmtList->execute([$userId]);
         $rows = $stmtList->fetchAll(PDO::FETCH_ASSOC);
 
-        // 5. 回傳完整資料包
+        // 8. 回傳完整資料包給前端
         echo json_encode([
             'status' => 'success',
             'data' => $rows,
             'stats' => [
                 'annual' => [
-                    'entitled' => $entitledAnnual, // 應得
-                    'used' => $usedAnnual,         // 已用
-                    'remaining' => $remainingAnnual // 剩餘
+                    'entitled' => $totalEntitled,   // 顯示在前端的「應得」包含去年保留
+                    'used' => $usedAnnual,          
+                    'remaining' => $remainingAnnual 
                 ],
                 'comp' => [
-                    'earned' => $earnedComp,       // 累積
-                    'used' => $usedComp,           // 已用
-                    'remaining' => $remainingComp   // 剩餘
+                    'earned' => $earnedComp,       
+                    'used' => $usedComp,           
+                    'remaining' => $remainingComp   
                 ],
-                // 其他假別只回傳已用
                 'others' => $usedStats
             ]
         ]);
@@ -80,14 +153,10 @@ try {
     }
 
     // ==========================================
-    // 功能 B: 查詢同事 (預留給下一步)
+    // 功能 B: 查詢同事
     // ==========================================
     if ($action === 'colleague_status') {
-        // 取得目前時間 (YYYY-MM-DD HH:mm:ss)
         $now = date('Y-m-d H:i:s');
-
-        // 查詢所有使用者，並關聯查詢「當下是否正在休假」
-        // 如果 lr.id 有值，代表該員工目前正在請假中
         $sql = "
             SELECT 
                 u.user_id, 
@@ -105,7 +174,6 @@ try {
         $stmt->execute([$now]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        // 整理資料：將狀態轉為易讀格式
         $results = [];
         foreach ($rows as $row) {
             $isOnLeave = !empty($row['leave_type']);
@@ -113,7 +181,6 @@ try {
                 'name' => $row['name'],
                 'status' => $isOnLeave ? 'leave' : 'work',
                 'status_text' => $isOnLeave ? '休假中' : '在勤',
-                // 如果在休假，顯示預計回來時間 (只取到分)
                 'return_time' => $isOnLeave ? substr($row['return_time'], 0, 16) : null
             ];
         }
