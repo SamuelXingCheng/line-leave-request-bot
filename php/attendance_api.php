@@ -198,43 +198,20 @@ try {
     ]);
 
     // --- 推播通知 (Flex Message) ---
+    // ==========================================
+    // 🔥 省錢修改：把訊息打包傳給前端發送，不用 pushMessage
+    // ==========================================
+    $responseMessages = [];
     
-    // 1. 推播給員工
-    // 1. 先推播打卡結果卡片給員工 (成功綠卡 或 異常紅卡)
+    // 1. 如果有成功綠卡，加入陣列
     if ($userId && !empty($employeeFlex)) {
-        pushFlexMessage($userId, $employeeFlex);
+        $responseMessages[] = $employeeFlex;
     }
 
-    // 2. 如果異常，產生轉傳文字並推播給【員工自己】
+    // 2. 如果異常，加入轉傳文字與主管提示
     if (!$isSuccess && $userId) {
-        // 取得備註原因
-        $finalReason = $is_qr_valid ? "QR Code 驗證" : ($reason ?: "無");
-
-        // 🔥 第一則訊息：正式簽核通知 (給員工轉傳用)
-        $mainMsgText = "【打卡異常簽核通知】\n" .
-                       "────────────────\n" .
-                       "申請人員｜{$userName}\n" .
-                       "打卡類型｜{$displayMode}\n" .
-                       "異常原因｜不在允許範圍內\n" .
-                       "距離差距｜" . intval($min_distance) . " 公尺\n" .
-                       "打卡時間｜{$displayTime}\n" .
-                       "備註說明｜{$finalReason}\n" .
-                       "────────────────\n" .
-                       "若同意補卡，請點擊下方連結簽核：\n" .
-                       $approvalLink;
-
-        // 🔥 第二則訊息：主管提示
-        $supervisorMsgText = "【系統提示】\n────────────────\n請將上方訊息轉傳給：";
-        if (!empty($supervisors)) {
-            $names = array_column($supervisors, 'name'); // 快速抓出所有主管的姓名
-            $supervisorMsgText .= "\n─ " . implode("\n─ ", $names);
-        } else {
-            $supervisorMsgText .= "\n尚未設定您的直屬主管，請聯繫管理員。";
-        }
-
-        // 依序推播這兩則文字訊息給員工
-        pushMessage($userId, ['type' => 'text', 'text' => $mainMsgText]);
-        pushMessage($userId, ['type' => 'text', 'text' => $supervisorMsgText]);
+        $responseMessages[] = ['type' => 'text', 'text' => $mainMsgText];
+        $responseMessages[] = ['type' => 'text', 'text' => $supervisorMsgText];
     }
 
 } catch (Exception $e) {
@@ -243,11 +220,12 @@ try {
     exit;
 }
 
-// 回傳結果給前端 (前端只負責關閉視窗)
+// 回傳結果給前端，並附帶要發送的訊息陣列
 echo json_encode([
     "status" => $dbStatus,
     "message" => $isSuccess ? "打卡成功" : "打卡異常，已通知主管",
-    "distance" => intval($min_distance)
+    "distance" => intval($min_distance),
+    "messages" => $responseMessages // 🔥 把訊息包裝丟給前端
 ]);
 
 /**

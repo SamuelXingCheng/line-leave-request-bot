@@ -96,22 +96,6 @@ try {
         ];
     }
 
-    // 5. 系統推播備份 (只推給員工自己留底，不推給主管)
-    $employeeFlex = createBusinessFlex(
-        "SUBMITTED",
-        "加班申請已建立",
-        [
-            "申請日期" => $date,
-            "加班時段" => "$startTime ~ $endTime",
-            "加班時數" => "$hours 小時",
-            "說明"     => "請將聊天室中的申請訊息轉傳給主管。"
-        ],
-        "#06C755"
-    );
-    if (function_exists('pushFlexMessage')) {
-        pushFlexMessage($userId, $employeeFlex);
-    }
-
     // 6. 回傳給前端 (注意這裡是回傳 messages 陣列)
     echo json_encode([
         'status' => 'success', 

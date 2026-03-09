@@ -112,8 +112,16 @@ if (!$liffId) {
             try {
                 await liff.init({ liffId: LIFF_ID });
                 if (!liff.isLoggedIn()) {
-                    liff.login();
+                    // 🔥 加入 chat_message.write 權限要求
+                    liff.login({ scope: "profile chat_message.write" });
                     return;
+                } else {
+                    // 檢查是否已授權發送訊息
+                    const context = liff.getContext();
+                    if (context && context.scope && !context.scope.includes("chat_message.write")) {
+                        liff.login({ scope: "profile chat_message.write" });
+                        return;
+                    }
                 }
                 updateStatus("正在取得 GPS 定位...", true);
                 getLocation();
@@ -207,7 +215,18 @@ if (!$liffId) {
                 const data = await res.json();
 
                 if (data.status === 'success' || data.status === 'fail') {
-                    alert(`【打卡完成】\n系統已發送通知至您的聊天室。`);
+                    // 🔥 新增：讓 LIFF 代勞發送訊息 (免扣額度！)
+                    if (data.messages && data.messages.length > 0) {
+                        try {
+                            if (liff.isInClient()) {
+                                await liff.sendMessages(data.messages);
+                            }
+                        } catch (err) {
+                            console.error("Send message failed", err);
+                        }
+                    }
+
+                    alert(`【打卡完成】\n請查看聊天室訊息。`);
                     liff.closeWindow();
                 } else {
                     throw new Error(data.message || '未知錯誤');
