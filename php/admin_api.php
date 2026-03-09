@@ -303,6 +303,34 @@ try {
         exit;
     }
 
+    // =======================================
+    // 區塊六：手動校正員工休假時數 (Update Hours)
+    // =======================================
+    if ($method === 'POST' && $action === 'update_hours') {
+        $id = $input['id'] ?? '';
+        $annual = isset($input['annual']) ? floatval($input['annual']) : 0;
+        $comp = isset($input['comp']) ? floatval($input['comp']) : 0;
+        $personal = isset($input['personal']) ? floatval($input['personal']) : 0;
+        $sick = isset($input['sick']) ? floatval($input['sick']) : 0;
+
+        if (empty($id)) {
+            throw new Exception("缺少員工 ID");
+        }
+
+        $stmt = $db->prepare("
+            UPDATE users 
+            SET annual_leave_hours = ?, 
+                comp_leave_hours = ?, 
+                used_personal_hours = ?, 
+                used_sick_hours = ? 
+            WHERE id = ?
+        ");
+        $stmt->execute([$annual, $comp, $personal, $sick, $id]);
+
+        echo json_encode(['status' => 'success', 'message' => '時數校正成功']);
+        exit;
+    }
+
     throw new Exception("無效的請求");
 
 } catch (Exception $e) {
