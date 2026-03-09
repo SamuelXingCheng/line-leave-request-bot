@@ -1,3 +1,62 @@
+<?php
+session_start();
+// 🔥 這是你的後台專屬密碼，可以自行修改
+$ADMIN_PASSWORD = "churchadmin2026"; 
+
+// 處理登出邏輯
+if (isset($_GET['logout'])) {
+    session_destroy();
+    header("Location: admin_users.php");
+    exit;
+}
+
+// 處理登入邏輯
+$error_msg = "";
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['password'])) {
+    if ($_POST['password'] === $ADMIN_PASSWORD) {
+        $_SESSION['admin_logged_in'] = true;
+        header("Location: admin_users.php"); 
+        exit;
+    } else {
+        $error_msg = "密碼錯誤，請重新輸入。";
+    }
+}
+
+// ========================================================
+// 🛡️ 保護牆：如果尚未登入，顯示登入畫面，並「攔截」下方內容載入
+// ========================================================
+if (empty($_SESSION['admin_logged_in'])) {
+?>
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>系統管理後台登入</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #F3F4F6; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .login-box { background: #fff; padding: 40px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); text-align: center; width: 100%; max-width: 320px; border: 1px solid #E5E7EB; }
+        .login-box h2 { margin-top: 0; color: #111827; font-size: 1.25rem; }
+        .login-box input { width: 100%; box-sizing: border-box; padding: 10px; margin: 15px 0; border: 1px solid #D1D5DB; border-radius: 4px; font-size: 0.95rem; }
+        .login-box button { width: 100%; background: #06C755; color: #fff; border: none; padding: 10px; border-radius: 4px; font-weight: 600; cursor: pointer; font-size: 0.95rem; }
+        .login-box button:hover { background: #05b04a; }
+        .error { color: #DC2626; font-size: 0.85rem; margin-bottom: 10px; font-weight: 600; }
+    </style>
+</head>
+<body>
+    <div class="login-box">
+        <h2>系統管理後台</h2>
+        <?php if($error_msg) echo "<div class='error'>$error_msg</div>"; ?>
+        <form method="POST">
+            <input type="password" name="password" placeholder="請輸入管理員密碼" required autofocus>
+            <button type="submit">登入</button>
+        </form>
+    </div>
+</body></html>
+<?php 
+    exit; // ⚠️ 非常重要：這行會讓程式停在這裡，沒密碼的人絕對看不到下面的機密資料！
+} 
+?>
+
+
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -59,29 +118,14 @@
         .form-group input { width: 100%; padding: 8px 12px; border: 1px solid #D1D5DB; border-radius: 4px; box-sizing: border-box; }
         .modal-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
 
-        /* 🔥 新增：回到頂部懸浮按鈕樣式 */
+        /* 懸浮按鈕 HTML */
         #backToTopBtn {
-            display: none; 
-            position: fixed; 
-            bottom: 30px; 
-            right: 30px; 
-            z-index: 99;
-            background: var(--text-main); 
-            color: white; 
-            border: none; 
-            padding: 12px 16px;
-            border-radius: 4px; 
-            font-weight: 600; 
-            cursor: pointer;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
-            transition: 0.2s; 
-            font-size: 0.9rem;
+            display: none; position: fixed; bottom: 30px; right: 30px; z-index: 99;
+            background: var(--text-main); color: white; border: none; padding: 12px 16px;
+            border-radius: 4px; font-weight: 600; cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: 0.2s; font-size: 0.9rem;
         }
-        #backToTopBtn:hover { 
-            background: #374151; 
-            transform: translateY(-2px); 
-            box-shadow: 0 6px 8px rgba(0,0,0,0.15); 
-        }
+        #backToTopBtn:hover { background: #374151; transform: translateY(-2px); box-shadow: 0 6px 8px rgba(0,0,0,0.15); }
     </style>
 </head>
 <body>
@@ -197,7 +241,7 @@
     <script>
         let allUsers = [];
 
-        // 🔥 新增：監聽捲動事件，控制回到頂部按鈕顯示/隱藏
+        // 監聽捲動事件，控制回到頂部按鈕顯示/隱藏
         window.addEventListener('scroll', function() {
             const btn = document.getElementById("backToTopBtn");
             if (document.body.scrollTop > 300 || document.documentElement.scrollTop > 300) {
@@ -218,7 +262,6 @@
             if (tabId === 'users') loadUsers();
             if (tabId === 'supervisors') { loadUsers().then(loadSupervisors); }
             
-            // 切換頁籤時自動回到最上方
             window.scrollTo(0, 0);
         }
 
