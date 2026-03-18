@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/config.php';
-$liffId = getenv('SUPERVISOR_LIFF_ID');
+$liffId = getenv('MENU_LIFF_ID');
 ?>
 <!DOCTYPE html>
 <html lang="zh-TW">
@@ -89,6 +89,19 @@ $liffId = getenv('SUPERVISOR_LIFF_ID');
             if (!liff.isLoggedIn()) { liff.login(); return; }
             const profile = await liff.getProfile();
             currentLineId = profile.userId;
+
+            // 🔥 新增：讀取網址參數，檢查是否有指定要開啟的 tab
+            const urlParams = new URLSearchParams(window.location.search);
+            const targetTab = urlParams.get('tab');
+            
+            if (targetTab) {
+                // 如果網址有 ?tab=mod，就自動切換過去
+                switchTab(targetTab);
+            } else {
+                // 否則維持預設的 leave (新假單)
+                switchTab('leave');
+            }
+
             loadData();
         }
 
@@ -189,15 +202,26 @@ $liffId = getenv('SUPERVISOR_LIFF_ID');
 
         function switchTab(tabName) {
             currentTab = tabName;
+            
+            // 1. 移除所有 tab 和內容的 active 狀態
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.container').forEach(c => c.classList.remove('active'));
             
-            event.target.classList.add('active');
-            document.getElementById(`view-${tabName}`).classList.add('active');
+            // 🔥 修正：不要依賴滑鼠的 event.target，改用 querySelector 精準抓取元素
+            const activeTabBtn = document.querySelector(`.tab[onclick="switchTab('${tabName}')"]`);
+            if (activeTabBtn) activeTabBtn.classList.add('active');
             
+            const activeContainer = document.getElementById(`view-${tabName}`);
+            if (activeContainer) activeContainer.classList.add('active');
+            
+            // 2. 判斷是否要顯示底部的浮動按鈕 (已審核頁面不需要)
             const fab = document.getElementById('fab-bar');
-            if (tabName === 'history') fab.style.display = 'none';
-            else { fab.style.display = 'flex'; updateCount(); }
+            if (tabName === 'history') {
+                fab.style.display = 'none';
+            } else {
+                fab.style.display = 'flex'; 
+                updateCount(); 
+            }
         }
 
         function updateBadge(type, count) {

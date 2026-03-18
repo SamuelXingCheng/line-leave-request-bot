@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/config.php';
-$liffId = getenv('REVOKE_LIFF_ID');
+$liffId = getenv('MENU_LIFF_ID');
 ?>
 <!DOCTYPE html>
 <html lang="zh-TW">
@@ -158,7 +158,11 @@ $liffId = getenv('REVOKE_LIFF_ID');
         async function init() {
             try {
                 await liff.init({ liffId: LIFF_ID });
-                if (!liff.isLoggedIn()) { liff.login(); return; }
+                if (!liff.isLoggedIn()) {
+                    // 強制要求發送訊息的權限
+                    liff.login({ scope: "profile chat_message.write" });
+                    return;
+                }
                 loadLeaves();
             } catch (err) {
                 alert("系統初始化失敗：" + err.message);
@@ -208,13 +212,12 @@ $liffId = getenv('REVOKE_LIFF_ID');
             }
         }
 
-        // --- 新版彈窗邏輯 ---
+        // --- 彈窗邏輯 ---
         function openModifyModal(id, start, end) {
             document.getElementById('modLeaveId').value = id;
             document.getElementById('modOriginalStart').value = start;
             document.getElementById('modOriginalEnd').value = end;
 
-            // 預設填入原本的時間
             document.getElementById('modNewStart').value = start.replace(' ', 'T').substring(0, 16);
             document.getElementById('modNewEnd').value = end.replace(' ', 'T').substring(0, 16);
             
@@ -225,6 +228,7 @@ $liffId = getenv('REVOKE_LIFF_ID');
             document.getElementById('modifyModal').style.display = 'none';
         }
 
+        // --- 送出修改時段 ---
         async function submitModification() {
             const leaveId = document.getElementById('modLeaveId').value;
             const newStart = document.getElementById('modNewStart').value;
@@ -252,22 +256,34 @@ $liffId = getenv('REVOKE_LIFF_ID');
                 
                 const result = await res.json();
                 if (result.status === 'success') {
-                    // 🔥【新增】: 使用 liff.sendMessages 發送訊息
                     if (result.forward_message) {
-                        await liff.sendMessages(result.forward_message)
-                            .then(() => {
-                                alert("申請已送出！\n訊息已發送至聊天室，請轉傳給主管。");
-                            })
-                            .catch((err) => {
+                        if (liff.isInClient()) {
+                            try {
+                                // 嘗試發送訊息
+                                await liff.sendMessages(result.forward_message);
+                                alert("變更申請已送出！\n請關閉視窗，將聊天室中的訊息轉傳給主管。");
+                                liff.closeWindow(); 
+                            } catch (err) {
                                 console.error(err);
-                                alert("申請成功，但訊息發送失敗 (請確認是否從 LINE 開啟)。");
-                            });
+                                // 🔥 精準錯誤判斷與引導
+                                const errorString = err.message.toLowerCase();
+                                if (errorString.includes("permission") || errorString.includes("scope") || errorString.includes("consent")) {
+                                    alert("【權限不足】\n請至 LINE 設定 > 我的帳號 > 連動中的應用程式，將此 APP「解除連動」後再重新開啟網頁。");
+                                } else if (errorString.includes("context") || errorString.includes("cannot be used")) {
+                                    alert("【環境錯誤】\n請務必從「LINE 聊天室內的圖文選單」開啟此網頁，否則系統無法代發訊息。");
+                                } else {
+                                    alert("申請成功，但訊息發送失敗 (" + err.message + ")");
+                                }
+                                closeModal(); loadLeaves();
+                            }
+                        } else {
+                            alert("申請成功！\n(提示：您目前使用外部瀏覽器，無法自動發送 LINE 訊息，請用手機 LINE 操作)");
+                            closeModal(); loadLeaves();
+                        }
                     } else {
                         alert(result.message);
+                        closeModal(); loadLeaves();
                     }
-                    
-                    closeModal();
-                    loadLeaves();
                 } else {
                     throw new Error(result.message);
                 }
@@ -276,7 +292,8 @@ $liffId = getenv('REVOKE_LIFF_ID');
             }
         }
 
-        async function handleDelete(groupId) { /* 同上 */
+        // --- 撤回與註銷 ---
+        async function handleDelete(groupId) {
              if(!confirm("確定要撤回此申請？")) return;
              try {
                 const res = await fetch(`revoke_api.php?action=delete&groupId=${groupId}`);
@@ -285,6 +302,7 @@ $liffId = getenv('REVOKE_LIFF_ID');
                 loadLeaves();
             } catch(e) { alert("失敗：" + e.message); }
         }
+
         async function handleFullRevoke(id) {
             if(!confirm("確定申請註銷？\n(需主管核准後退還時數)")) return;
             try {
@@ -301,17 +319,24 @@ $liffId = getenv('REVOKE_LIFF_ID');
                 const result = await res.json();
                 
                 if (result.status === 'success') {
-                    // 🔥【新增】: 使用 liff.sendMessages 發送訊息
+                    // 🔥 修正 4：同樣加上 isInClient() 判斷
                     if (result.forward_message) {
-                        await liff.sendMessages(result.forward_message)
-                            .then(() => {
-                                alert("註銷申請已送出！\n請將聊天室中的訊息轉傳給主管。");
-                            })
-                            .catch((err) => {
+                        if (liff.isInClient()) {
+                            try {
+                                await liff.sendMessages(result.forward_message);
+                                alert("註銷申請已送出！\n請關閉視窗，將聊天室中的訊息轉傳給主管。");
+                                liff.closeWindow();
+                            } catch (err) {
                                 alert("申請成功，但訊息發送失敗。");
-                            });
+                                loadLeaves();
+                            }
+                        } else {
+                            alert("申請成功！(外部瀏覽器無法自動發送 LINE 訊息)");
+                            loadLeaves();
+                        }
+                    } else {
+                        loadLeaves();
                     }
-                    loadLeaves();
                 } else {
                     alert(result.message);
                 }

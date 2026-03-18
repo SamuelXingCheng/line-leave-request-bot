@@ -128,10 +128,15 @@ $ver = time();
 <script>
     const LIFF_ID = "<?php echo $liffId; ?>";
     
-    // 初始化日期
-    const today = new Date().toISOString().split('T')[0];
-    document.getElementById('startDate').value = today;
-    document.getElementById('endDate').value = today;
+    // 初始化日期 (修正時差問題，強制使用台灣/當地設備時間)
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const localToday = `${year}-${month}-${day}`;
+
+    document.getElementById('startDate').value = localToday;
+    document.getElementById('endDate').value = localToday;
 
     liff.init({ liffId: LIFF_ID }).then(() => {
         if (!liff.isLoggedIn()) liff.login();

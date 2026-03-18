@@ -12,19 +12,17 @@ try {
         $lineId = $_GET['lineId'] ?? '';
         if (!$lineId) throw new Exception("缺少 Line ID");
 
-        // 1. 查主管 id
-        $stmtSup = $db->prepare("SELECT id FROM users WHERE user_id = ?");
-        $stmtSup->execute([$lineId]);
-        $supervisor = $stmtSup->fetch(PDO::FETCH_ASSOC);
-        
-        if (!$supervisor) { echo json_encode(['status'=>'success', 'leaves'=>[], 'mods'=>[], 'overtimes'=>[], 'clockins'=>[], 'history'=>[]]); exit; }
-        $supNumericId = $supervisor['id'];
-
-        // 2. 查下屬
-        $sqlSub = "SELECT u.user_id FROM user_supervisors us JOIN users u ON us.user_id = u.id WHERE us.supervisor_id = ?";
+        // 1. 直接透過 LINE ID 查詢該主管的所有下屬
+        $sqlSub = "SELECT user_id FROM user_supervisors WHERE supervisor_id = ?";
         $stmtSub = $db->prepare($sqlSub);
-        $stmtSub->execute([$supNumericId]);
+        $stmtSub->execute([$lineId]);
         $subLineIds = $stmtSub->fetchAll(PDO::FETCH_COLUMN);
+        
+        // 確保他真的有被設為主管，若沒有下屬，直接回傳空陣列
+        if (empty($subLineIds)) { 
+            echo json_encode(['status'=>'success', 'leaves'=>[], 'mods'=>[], 'overtimes'=>[], 'clockins'=>[], 'history'=>[]]); 
+            exit; 
+        }
 
         $leaves = []; $mods = []; $overtimes = []; $clockins = []; $history = [];
 
