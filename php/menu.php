@@ -143,7 +143,25 @@ $liffId = getenv('MENU_LIFF_ID');
     <script>
         const LIFF_ID = "<?php echo $liffId; ?>";
         liff.init({ liffId: LIFF_ID }).then(() => {
-            if (!liff.isLoggedIn()) liff.login();
+            if (!liff.isLoggedIn()) {
+                liff.login();
+                return;
+            }
+            
+            // 🔥 自動路由：如果網址有帶跳轉參數，像接駁車一樣自動送往審核頁面
+            const urlParams = new URLSearchParams(window.location.search);
+            let state = urlParams.get('liff.state');
+            
+            // 解析被 LINE 隱藏的參數
+            if (state && state.includes('tab=')) {
+                window.location.href = 'supervisor_index.php' + (state.startsWith('?') ? state : '?' + state);
+                return;
+            }
+            // 解析一般參數
+            if (urlParams.get('tab')) {
+                window.location.href = 'supervisor_index.php' + window.location.search;
+                return;
+            }
         }).catch(err => {
             console.error("LIFF Initialization failed", err);
         });

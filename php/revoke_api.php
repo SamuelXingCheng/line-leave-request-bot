@@ -162,9 +162,8 @@ try {
         // $approvalLink = "line://oaMessage/@{$botId}/?" . rawurlencode($approvalCommand);
 
         // 假設您的審核頁 LIFF ID 是 xxx-review
-        $supLiffId = getenv("SUPERVISOR_LIFF_ID");
-        $approvalLink = "https://liff.line.me/{$supLiffId}?tab=mod&highlight={$uuid}";
-
+        $menuLiffId = getenv("MENU_LIFF_ID");
+        $approvalLink = "https://liff.line.me/{$menuLiffId}/?tab=mod&highlight={$uuid}";
         // 定義商務用語
         $typeMapping = [
             'modify_range' => '變更休假時段',

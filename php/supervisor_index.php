@@ -90,16 +90,22 @@ $liffId = getenv('MENU_LIFF_ID');
             const profile = await liff.getProfile();
             currentLineId = profile.userId;
 
-            // 🔥 新增：讀取網址參數，檢查是否有指定要開啟的 tab
+            // 🔥 優化：讀取網址參數，自動切換分頁 (並支援破解 liff.state 隱藏參數)
             const urlParams = new URLSearchParams(window.location.search);
-            const targetTab = urlParams.get('tab');
+            let targetTab = urlParams.get('tab');
             
+            if (!targetTab && urlParams.get('liff.state')) {
+                const stateStr = urlParams.get('liff.state');
+                if (stateStr.includes('tab=')) {
+                    const stateParams = new URLSearchParams(stateStr.startsWith('?') ? stateStr : '?' + stateStr);
+                    targetTab = stateParams.get('tab');
+                }
+            }
+
             if (targetTab) {
-                // 如果網址有 ?tab=mod，就自動切換過去
-                switchTab(targetTab);
+                switchTab(targetTab); // 精準切換到變更單
             } else {
-                // 否則維持預設的 leave (新假單)
-                switchTab('leave');
+                switchTab('leave');   // 預設切換到新假單
             }
 
             loadData();

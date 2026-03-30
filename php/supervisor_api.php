@@ -82,34 +82,48 @@ try {
         $lineId = $input['lineId'] ?? '';
 
         if (empty($items)) throw new Exception("未選擇項目");
-        $db->beginTransaction();
+        // 🔥 移除了原本包在外面的 $db->beginTransaction();
         
         $count = 0;
         foreach ($items as $item) {
             $id = $item['id'];
-            if ($item['type'] === 'leave') {
-                $db->prepare("UPDATE leave_requests SET status = 'approved' WHERE id = ?")->execute([$id]);
-                $db->prepare("UPDATE leave_approvals SET status = 'approved', updated_at = NOW() WHERE request_id = ? AND supervisor_id = ?")->execute([$id, $lineId]);
-                $req = $db->prepare("SELECT user_id, start_at FROM leave_requests WHERE id = ?"); $req->execute([$id]); $res = $req->fetch();
-                if ($res) pushMessage($res['user_id'], ['type'=>'text', 'text'=>"【主管核准】您於 {$res['start_at']} 的假單已核准。"]);
-            } elseif ($item['type'] === 'overtime') {
-                $otReq = $db->prepare("SELECT user_id, start_at, hours FROM overtime_requests WHERE id = ?"); $otReq->execute([$id]); $ot = $otReq->fetch();
-                if ($ot) {
-                    $db->prepare("UPDATE overtime_requests SET status = 'approved' WHERE id = ?")->execute([$id]);
-                    $db->prepare("UPDATE users SET comp_leave_hours = comp_leave_hours + ? WHERE user_id = ?")->execute([$ot['hours'], $ot['user_id']]);
-                    pushMessage($ot['user_id'], ['type'=>'text', 'text'=>"【主管核准】您於 {$ot['start_at']} 的加班單已核准，共計 {$ot['hours']} 小時已存入補休餘額。"]);
-                }
-            } elseif ($item['type'] === 'clockin') {
-                $ckReq = $db->prepare("SELECT user_id, created_at FROM attendance_logs WHERE id = ?"); $ckReq->execute([$id]); $ck = $ckReq->fetch();
-                if ($ck) {
-                    $db->prepare("UPDATE attendance_logs SET approval_status = 'approved' WHERE id = ?")->execute([$id]);
-                    pushMessage($ck['user_id'], ['type'=>'text', 'text'=>"【主管核准】您於 {$ck['created_at']} 的打卡異常已核准補登。"]);
+            
+            if ($item['type'] === 'mod') {
+                // 變更單 (mod) 內部已經寫好交易保護了，直接呼叫即可
+                require_once __DIR__ . '/ModificationApprovalHandler.php';
+                $modHandler = new ModificationApprovalHandler($lineId, "/同意銷假 " . $id);
+                $modHandler->handle(); 
+            } else {
+                // 其他單據，幫它們獨立包裝一個小交易
+                $db->beginTransaction();
+                try {
+                    if ($item['type'] === 'leave') {
+                        $db->prepare("UPDATE leave_requests SET status = 'approved' WHERE id = ?")->execute([$id]);
+                        $db->prepare("UPDATE leave_approvals SET status = 'approved', updated_at = NOW() WHERE request_id = ? AND supervisor_id = ?")->execute([$id, $lineId]);
+                        $req = $db->prepare("SELECT user_id, start_at FROM leave_requests WHERE id = ?"); $req->execute([$id]); $res = $req->fetch();
+                        // (依據之前的建議，此處推播可保留或刪除)
+                    } elseif ($item['type'] === 'overtime') {
+                        $otReq = $db->prepare("SELECT user_id, start_at, hours FROM overtime_requests WHERE id = ?"); $otReq->execute([$id]); $ot = $otReq->fetch();
+                        if ($ot) {
+                            $db->prepare("UPDATE overtime_requests SET status = 'approved' WHERE id = ?")->execute([$id]);
+                            $db->prepare("UPDATE users SET comp_leave_hours = comp_leave_hours + ? WHERE user_id = ?")->execute([$ot['hours'], $ot['user_id']]);
+                            // (依據之前的建議，此處推播可保留或刪除)
+                        }
+                    } elseif ($item['type'] === 'clockin') {
+                        $ckReq = $db->prepare("SELECT user_id, created_at FROM attendance_logs WHERE id = ?"); $ckReq->execute([$id]); $ck = $ckReq->fetch();
+                        if ($ck) {
+                            $db->prepare("UPDATE attendance_logs SET approval_status = 'approved' WHERE id = ?")->execute([$id]);
+                            // (依據之前的建議，此處推播可保留或刪除)
+                        }
+                    }
+                    $db->commit();
+                } catch (Exception $e) {
+                    $db->rollBack();
                 }
             }
             $count++;
         }
-        $db->commit();
-        echo json_encode(['status' => 'success', 'message' => "成功核准 {$count} 筆項目"]);
+        echo json_encode(['status' => 'success', 'message' => "成功處理 {$count} 筆項目"]);
         exit;
     }
 
@@ -122,28 +136,38 @@ try {
         $lineId = $input['lineId'] ?? '';
 
         if (empty($items)) throw new Exception("未選擇項目");
-        $db->beginTransaction();
         
         $count = 0;
         foreach ($items as $item) {
             $id = $item['id'];
-            if ($item['type'] === 'leave') {
-                $db->prepare("UPDATE leave_requests SET status = 'rejected' WHERE id = ?")->execute([$id]);
-                $db->prepare("UPDATE leave_approvals SET status = 'rejected', updated_at = NOW() WHERE request_id = ? AND supervisor_id = ?")->execute([$id, $lineId]);
-                $req = $db->prepare("SELECT user_id, start_at FROM leave_requests WHERE id = ?"); $req->execute([$id]); $res = $req->fetch();
-                if ($res) pushMessage($res['user_id'], ['type'=>'text', 'text'=>"【主管退件】您於 {$res['start_at']} 的假單已被駁回。"]);
-            } elseif ($item['type'] === 'overtime') {
-                $db->prepare("UPDATE overtime_requests SET status = 'rejected' WHERE id = ?")->execute([$id]);
-                $otReq = $db->prepare("SELECT user_id, start_at FROM overtime_requests WHERE id = ?"); $otReq->execute([$id]); $ot = $otReq->fetch();
-                if ($ot) pushMessage($ot['user_id'], ['type'=>'text', 'text'=>"【主管退件】您於 {$ot['start_at']} 的加班單已被駁回。"]);
-            } elseif ($item['type'] === 'clockin') {
-                $db->prepare("UPDATE attendance_logs SET approval_status = 'rejected' WHERE id = ?")->execute([$id]);
-                $ckReq = $db->prepare("SELECT user_id, created_at FROM attendance_logs WHERE id = ?"); $ckReq->execute([$id]); $ck = $ckReq->fetch();
-                if ($ck) pushMessage($ck['user_id'], ['type'=>'text', 'text'=>"【主管退件】您於 {$ck['created_at']} 的異常打卡補登已被駁回。"]);
+            $db->beginTransaction();
+            try {
+                if ($item['type'] === 'leave') {
+                    $db->prepare("UPDATE leave_requests SET status = 'rejected' WHERE id = ?")->execute([$id]);
+                    $db->prepare("UPDATE leave_approvals SET status = 'rejected', updated_at = NOW() WHERE request_id = ? AND supervisor_id = ?")->execute([$id, $lineId]);
+                    $req = $db->prepare("SELECT user_id, start_at FROM leave_requests WHERE id = ?"); $req->execute([$id]); $res = $req->fetch();
+                    if ($res) pushMessage($res['user_id'], ['type'=>'text', 'text'=>"【主管退件】您於 {$res['start_at']} 的假單已被駁回。"]);
+                } elseif ($item['type'] === 'overtime') {
+                    $db->prepare("UPDATE overtime_requests SET status = 'rejected' WHERE id = ?")->execute([$id]);
+                    $otReq = $db->prepare("SELECT user_id, start_at FROM overtime_requests WHERE id = ?"); $otReq->execute([$id]); $ot = $otReq->fetch();
+                    if ($ot) pushMessage($ot['user_id'], ['type'=>'text', 'text'=>"【主管退件】您於 {$ot['start_at']} 的加班單已被駁回。"]);
+                } elseif ($item['type'] === 'clockin') {
+                    $db->prepare("UPDATE attendance_logs SET approval_status = 'rejected' WHERE id = ?")->execute([$id]);
+                    $ckReq = $db->prepare("SELECT user_id, created_at FROM attendance_logs WHERE id = ?"); $ckReq->execute([$id]); $ck = $ckReq->fetch();
+                    if ($ck) pushMessage($ck['user_id'], ['type'=>'text', 'text'=>"【主管退件】您於 {$ck['created_at']} 的異常打卡補登已被駁回。"]);
+                } elseif ($item['type'] === 'mod') {
+                    $db->prepare("UPDATE leave_modifications SET status = 'rejected' WHERE modification_uuid = ?")->execute([$id]);
+                    $modReq = $db->prepare("SELECT user_id FROM leave_modifications WHERE modification_uuid = ?"); 
+                    $modReq->execute([$id]); 
+                    $mod = $modReq->fetch();
+                    if ($mod) pushMessage($mod['user_id'], ['type'=>'text', 'text'=>"【主管退件】您的假單變更/銷假申請已被駁回。"]);
+                }
+                $db->commit();
+            } catch (Exception $e) {
+                $db->rollBack();
             }
             $count++;
         }
-        $db->commit();
         echo json_encode(['status' => 'success', 'message' => "已駁回 {$count} 筆項目"]);
         exit;
     }
