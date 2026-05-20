@@ -21,7 +21,7 @@ try {
     // 區塊一：員工基本資料 (Users)
     // =======================================
     if ($method === 'GET' && $action === 'list') {
-        $stmt = $db->query("SELECT * FROM users ORDER BY id DESC");
+        $stmt = $db->query("SELECT * FROM users ORDER BY is_archived ASC, id DESC");
         $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
         echo json_encode(['status' => 'success', 'data' => $users]);
         exit;
@@ -124,8 +124,8 @@ try {
     if ($method === 'GET' && $action === 'dashboard') {
         $today = date('Y-m-d');
         
-        // 1. 總員工數 (有設定到職日的視為正式員工)
-        $stmtEmp = $db->query("SELECT COUNT(*) FROM users WHERE start_date IS NOT NULL");
+        // 1. 總員工數 (有設定到職日的視為正式員工，且未離職)
+        $stmtEmp = $db->query("SELECT COUNT(*) FROM users WHERE start_date IS NOT NULL AND is_archived = 0");
         $totalEmp = $stmtEmp->fetchColumn();
 
         // 2. 今日請假人數與名單
@@ -328,6 +328,39 @@ try {
         $stmt->execute([$annual, $comp, $personal, $sick, $id]);
 
         echo json_encode(['status' => 'success', 'message' => '時數校正成功']);
+        exit;
+    }
+
+    // =======================================
+    // 區塊七：封存 / 員工離職處理 (Archive)
+    // =======================================
+    if ($method === 'PUT' && $action === 'archive') {
+        $id = $input['id'] ?? '';
+        $resignDate = $input['resign_date'] ?? date('Y-m-d');
+        if (empty($id)) throw new Exception("缺少必要資料");
+
+        $db->beginTransaction();
+        try {
+            // 1. 變更員工狀態為已封存(1)，並寫入離職日期
+            $stmt = $db->prepare("UPDATE users SET is_archived = 1, resign_date = ? WHERE id = ?");
+            $stmt->execute([$resignDate, $id]);
+
+            // 2. 查出該員工的 LINE ID
+            $stmtUser = $db->prepare("SELECT user_id FROM users WHERE id = ?");
+            $stmtUser->execute([$id]);
+            $userLineId = $stmtUser->fetchColumn();
+
+            // 3. 自動解除組織架構設定 (清空他身為別人主管、或別人是他主管的紀錄)
+            if ($userLineId) {
+                $db->prepare("DELETE FROM user_supervisors WHERE user_id = ? OR supervisor_id = ?")->execute([$userLineId, $userLineId]);
+            }
+
+            $db->commit();
+            echo json_encode(['status' => 'success', 'message' => '該員工已成功標記離職，其主管與下屬關聯已自動解除。']);
+        } catch (Exception $e) {
+            $db->rollBack();
+            throw $e;
+        }
         exit;
     }
 

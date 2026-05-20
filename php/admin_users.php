@@ -297,12 +297,71 @@ if (empty($_SESSION['admin_logged_in'])) {
             } catch (err) { console.error(err); }
         }
 
+        // 1. 更新員工列表渲染 (加入在職/離職狀態與封存按鈕)
         async function loadUsers() {
             const res = await fetch('admin_api.php?action=list'); const json = await res.json();
             if (json.status === 'success') {
                 allUsers = json.data;
-                document.getElementById('userTableBody').innerHTML = json.data.map(u => `<tr><td style="color:#6B7280;">${u.id}</td><td style="font-weight:600;">${u.name}</td><td style="color:#6B7280; font-family:monospace;">${u.user_id}</td><td>${u.start_date || '-'}</td><td><button class="btn btn-edit" onclick='openModal("edit", ${JSON.stringify(u)})'>編輯</button> <button class="btn btn-delete" onclick="deleteUser(${u.id}, '${u.name}')">刪除</button></td></tr>`).join('') || '<tr><td colspan="5" align="center" style="color:#6B7280; padding:20px;">無資料</td></tr>';
+                document.getElementById('userTableBody').innerHTML = json.data.map(u => {
+                    const isArchived = u.is_archived == 1;
+                    const statusHtml = isArchived ? '<span class="badge badge-cancelled">已離職</span>' : '<span class="badge badge-approved">在職</span>';
+                    const opacity = isArchived ? '0.6' : '1'; // 離職者整列變半透明
+                    const resignText = isArchived && u.resign_date ? `<br><small style="color:#ef4444;">離職: ${u.resign_date}</small>` : '';
+
+                    let buttons = '';
+                    if (isArchived) {
+                        // 已離職人員只能刪除或保留
+                        buttons = `<button class="btn btn-delete" onclick="deleteUser(${u.id}, '${u.name}')">刪除</button>`;
+                    } else {
+                        // 在職人員有黃色的「封存」按鈕
+                        buttons = `
+                            <button class="btn btn-edit" onclick='openModal("edit", ${JSON.stringify(u)})'>編輯</button>
+                            <button class="btn btn-cancel" onclick="archiveUser(${u.id}, '${u.name}')" style="background:#fff3cd; color:#856404; border-color:#ffeeba; margin: 0 4px;">封存</button>
+                            <button class="btn btn-delete" onclick="deleteUser(${u.id}, '${u.name}')">刪除</button>
+                        `;
+                    }
+
+                    return `<tr style="opacity: ${opacity};">
+                        <td>${statusHtml} <span style="color:#6B7280; font-size:0.8rem;">#${u.id}</span></td>
+                        <td style="font-weight:600;">${u.name} ${resignText}</td>
+                        <td style="color:#6B7280; font-family:monospace;">${u.user_id}</td>
+                        <td>${u.start_date || '-'}</td>
+                        <td>${buttons}</td>
+                    </tr>`;
+                }).join('') || '<tr><td colspan="5" align="center" style="color:#6B7280; padding:20px;">無資料</td></tr>';
                 populateDropdowns();
+            }
+        }
+
+        // 2. 🔥 新增：處理點擊「封存」按鈕的輸入彈窗
+        async function archiveUser(id, name) {
+            // 預設帶入今天的台灣日期 (YYYY-MM-DD)
+            const now = new Date();
+            const defaultDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            
+            // 彈出視窗讓 HR 編輯離職日期
+            const resignDate = prompt(`【員工離職/退休封存作業】\n請輸入「${name}」的最後在職日：`, defaultDate);
+            
+            if (!resignDate) return; // 按下取消則不執行
+
+            if (!confirm(`系統確認：確定要將「${name}」變更為離職封存狀態嗎？\n\n⚠️ 注意：系統將會自動解除該員工的所有直屬主管與下屬設定，避免簽核流程卡死。`)) return;
+
+            try {
+                const res = await fetch(`admin_api.php?action=archive`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: id, resign_date: resignDate })
+                });
+                const json = await res.json();
+                if (json.status === 'success') {
+                    alert("系統提示：" + json.message);
+                    loadUsers();
+                    if (typeof loadDashboard === 'function') loadDashboard(); // 更新儀表板在職人數
+                } else {
+                    alert("系統錯誤：" + json.message);
+                }
+            } catch (e) {
+                alert("系統錯誤：封存通訊失敗");
             }
         }
 
@@ -332,7 +391,15 @@ if (empty($_SESSION['admin_logged_in'])) {
         async function saveUser() { const payload = { id: document.getElementById('editId').value, name: document.getElementById('userName').value, user_id: document.getElementById('userLineId').value, start_date: document.getElementById('userStartDate').value }; const res = await fetch(`admin_api.php?action=${currentMode === 'add' ? 'add' : 'edit'}`, { method: currentMode === 'add' ? 'POST' : 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); const json = await res.json(); if (json.status === 'success') { alert("系統提示：" + json.message); closeModal(); loadUsers(); } else alert("系統錯誤：" + json.message); }
         async function deleteUser(id, name) { if (!confirm(`系統確認：確定刪除員工「${name}」？此操作無法復原。`)) return; const res = await fetch(`admin_api.php?action=delete&id=${id}`, { method: 'DELETE' }); const json = await res.json(); if (json.status === 'success') loadUsers(); else alert("系統錯誤：" + json.message); }
 
-        function populateDropdowns() { let ops = '<option value="">-- 請選擇 --</option>'; [...allUsers].sort((a,b)=>a.name.localeCompare(b.name)).forEach(u => ops += `<option value="${u.user_id}">${u.name}</option>`); document.getElementById('selEmployee').innerHTML = ops; document.getElementById('selSupervisor').innerHTML = ops; }
+        function populateDropdowns() { 
+            let ops = '<option value="">-- 請選擇 --</option>'; 
+            [...allUsers]
+                .filter(u => u.is_archived != 1) // 🔥 過濾掉已封存(離職)的人員
+                .sort((a,b)=>a.name.localeCompare(b.name))
+                .forEach(u => ops += `<option value="${u.user_id}">${u.name}</option>`); 
+            document.getElementById('selEmployee').innerHTML = ops; 
+            document.getElementById('selSupervisor').innerHTML = ops; 
+        }
         async function loadSupervisors() { const res = await fetch('admin_api.php?action=supervisor_list'); const json = await res.json(); if (json.status === 'success') document.getElementById('supTableBody').innerHTML = json.data.map(rel => `<tr><td style="font-weight:600;">${rel.sup_name || '查無此人'}</td><td>${rel.emp_name || '查無此人'}</td><td><button class="btn btn-delete" onclick="removeSupervisor('${rel.user_id}', '${rel.supervisor_id}')">解除設定</button></td></tr>`).join('') || '<tr><td colspan="3" align="center" style="color:#6B7280; padding:20px;">無資料</td></tr>'; }
         async function assignSupervisor() { const empId = document.getElementById('selEmployee').value; const supId = document.getElementById('selSupervisor').value; if (!empId || !supId) return alert("系統提示：請選擇員工與主管。"); const res = await fetch('admin_api.php?action=assign_supervisor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: empId, supervisor_id: supId }) }); const json = await res.json(); if (json.status === 'success') { alert("系統提示：" + json.message); loadSupervisors(); } else alert("系統錯誤：" + json.message); }
         async function removeSupervisor(empId, supId) { if (!confirm("系統確認：確定解除此從屬關係設定嗎？")) return; const res = await fetch(`admin_api.php?action=remove_supervisor&user_id=${empId}&supervisor_id=${supId}`, { method: 'DELETE' }); const json = await res.json(); if (json.status === 'success') loadSupervisors(); }
