@@ -1,7 +1,7 @@
 <?php
 // Db.php
 class Database {
-    private static $connection = null; // PHP 7.3 相容
+    private static $connection = null;
 
     public static function getConnection() {
         if (self::$connection === null) {
@@ -20,6 +20,8 @@ class Database {
 
             try {
                 self::$connection = new PDO($dsn, $user, $pass, $options);
+                self::$connection->exec("SET time_zone = '+08:00'");
+                date_default_timezone_set('Asia/Taipei');
             } catch (PDOException $e) {
                 error_log("❌ Database connection failed: " . $e->getMessage());
                 throw $e;

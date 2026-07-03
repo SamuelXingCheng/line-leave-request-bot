@@ -80,15 +80,27 @@ function replyQuickReply($replyToken, $text, $items) {
     foreach ($items as $item) {
         // 🔥【修改這段】判斷是否為進階 Action 物件 (例如 datetimepicker)
         if (isset($item['type']) && $item['type'] === 'action') {
-            // 如果已經是完整的 action 結構，直接使用
+            // 如果已經是完整的 action 結構，驗證 label 長度
+            if (isset($item['action']['label'])) {
+                $label = $item['action']['label'];
+                if (mb_strlen($label, 'UTF-8') > 20) {
+                    error_log("⚠️ Quick Reply label 超過 20 字元限制，已自動截斷: " . $label);
+                    $item['action']['label'] = mb_substr($label, 0, 20, 'UTF-8');
+                }
+            }
             $actions[] = $item;
         } else {
             // 否則維持原本的簡易模式：[標籤, 回傳文字]
+            $label = $item[0];
+            if (mb_strlen($label, 'UTF-8') > 20) {
+                error_log("⚠️ Quick Reply label 超過 20 字元限制，已自動截斷: " . $label);
+                $label = mb_substr($label, 0, 20, 'UTF-8');
+            }
             $actions[] = [
                 "type" => "action",
                 "action" => [
                     "type" => "message",
-                    "label" => $item[0],
+                    "label" => $label,
                     "text" => $item[1]
                 ]
             ];
@@ -286,7 +298,7 @@ function calculateHours($startStr, $endStr) {
                 $daySeconds = strtotime("$dateString $e") - strtotime("$dateString $s");
                 $dayHours = $daySeconds / 3600;
                 // 扣除午休
-                if ($s < $lunchStart && $e > $lunchEnd) { $dayHours -= 1; }
+                if ($s < $lunchStart && $e >= $lunchEnd) { $dayHours -= 1; }
                 $totalHours += $dayHours;
             }
         }

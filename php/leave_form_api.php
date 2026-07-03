@@ -42,26 +42,35 @@ try {
     // 注意：這裡假設 calculateHours 回傳的是小時數 (float)
     $leaveHours = calculateHours($startAt, $endAt); 
 
+    // 時數零值防護
+    if ($leaveHours <= 0) {
+        throw new Exception("請假時數必須大於 0，請確認起訖時間是否正確。");
+    }
+
     // ----------------------------------------------------
-    // 🔥 核心修改：特休優先抵扣補休邏輯
+    // 🔥 核心修改：特休優先抵扣補休邏輯（含浮點數安全比較）
     // ----------------------------------------------------
     $leaveType = $input['leaveType'];
     $reason = trim($input['reason'] ?? '');
     $finalLeaveType = $leaveType;
-    $deductComp = 0;
-    $deductAnnual = 0;
+    $deductComp = 0.0;
+    $deductAnnual = 0.0;
     $systemNote = "";
 
+    // 浮點數安全比較輔助函式（epsilon = 0.001 小時）
+    $floatGte = function($a, $b) { return ($a - $b) >= -0.001; };
+    $floatGt  = function($a, $b) { return ($a - $b) >   0.001; };
+
     if ($leaveType === '特休假') {
-        if ($currentComp >= $leaveHours) {
+        if ($floatGte($currentComp, $leaveHours)) {
             // 補休夠扣：全扣補休
             $deductComp = $leaveHours;
             $finalLeaveType = "補休假 (特休轉用)";
             $systemNote = "(系統：優先抵扣補休 {$leaveHours} 小時)";
-        } else if ($currentComp > 0) {
+        } else if ($floatGt($currentComp, 0)) {
             // 補休不夠：先扣光補休，剩下扣特休
-            $deductComp = $currentComp;
-            $deductAnnual = $leaveHours - $currentComp;
+            $deductComp   = $currentComp;
+            $deductAnnual = round($leaveHours - $currentComp, 4);
             $finalLeaveType = "特休/補休";
             $systemNote = "(系統：抵扣補休 {$deductComp} 小時，特休 {$deductAnnual} 小時)";
         } else {

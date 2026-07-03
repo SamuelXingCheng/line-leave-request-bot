@@ -122,7 +122,7 @@ class DeleteHandler {
      * 輔助函式：重新整理請假列表
      */
     private function reloadList($prefix) {
-        $session  = new UserSession($this->userId);
+            $session  = new UserSession($this->userId, $this->db);
         $startStr = $session->get("last_query_start");
         $endStr   = $session->get("last_query_end");
 
