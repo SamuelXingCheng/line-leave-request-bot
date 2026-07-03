@@ -16,7 +16,7 @@ class RevokeHandler {
         $this->event = $event;
         $this->replyToken = $event['replyToken'];
         $this->db = Database::getConnection();
-        $this->session = new UserSession($lineId);
+        $this->session = new UserSession($lineId, $this->db);
     }
 
     public function handle() {
@@ -129,40 +129,62 @@ class RevokeHandler {
     }
 
     private function createRequest($leaveId, $type, $date) {
-        // 🔥 1. 生成 UUID
-        $uuid = $this->generateUuid();
+        // 1. 先在 Transaction 外部查詢 split 預覽所需資料
+        $splitPreview = '';
+        if ($type === 'split') {
+            $stmt = $this->db->prepare("SELECT start_at, end_at FROM leave_requests WHERE id = ?");
+            $stmt->execute([$leaveId]);
+            $leave = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($leave) {
+                    $part1End   = date('Y-m-d', strtotime($date . ' -1 day')) . ' 17:30';
+                    $part2Start = $date . ' 08:30';
+                $part2End   = substr($leave['end_at'], 0, 16);
+                $splitPreview =
+                    "\n【拆單預覽】\n" .
+                    "✅ 保留段：" . substr($leave['start_at'], 0, 16) . " ~ {$part1End}\n" .
+                    "❌ 銷假段：{$part2Start} ~ {$part2End}\n";
+            }
+        }
 
-        // 2. 寫入資料庫 (加入 modification_uuid)
-        $stmt = $this->db->prepare("
-            INSERT INTO leave_modifications (modification_uuid, leave_request_id, user_id, type, target_date, status)
-            VALUES (?, ?, ?, ?, ?, 'pending')
-        ");
-        $stmt->execute([$uuid, $leaveId, $this->lineId, $type, $date]);
-
-        // 3. 查詢員工姓名
+        // 2. 查詢員工姓名（Transaction 外部）
         $stmt = $this->db->prepare("SELECT name FROM users WHERE user_id = ?");
         $stmt->execute([$this->lineId]);
         $userName = $stmt->fetchColumn();
 
-        $typeText = [
-            'delay_start' => '延後放假 (修改開始時間)',
-            'early_return' => '提早結束 (修改結束時間)',
-            'split' => '中途銷假 (拆單)'
-        ][$type];
+        try {
+            $this->db->beginTransaction();
 
-        // 🔥 4. 產生簽核連結 (改用 UUID)
-        $botId = getenv("LINE_BOT_ID");
-        $approvalCommand = "/同意銷假 $uuid"; // 改用 UUID
-        $encodedQuery = rawurlencode($approvalCommand);
-        $approvalLink = "line://oaMessage/@" . $botId . "/?" . $encodedQuery;
+            // 3. 生成安全 UUID
+            $uuid = $this->generateUuid();
 
-        // 5. 製作訊息
-        $msgText = 
+            // 4. 寫入資料庫
+            $stmt = $this->db->prepare("
+                INSERT INTO leave_modifications (modification_uuid, leave_request_id, user_id, type, target_date, status)
+                VALUES (?, ?, ?, ?, ?, 'pending')
+            ");
+            $stmt->execute([$uuid, $leaveId, $this->lineId, $type, $date]);
+
+            $this->db->commit();
+
+            // 5. 組裝訊息並回覆（commit 之後）
+            $typeText = [
+                'delay_start' => '延後放假 (修改開始時間)',
+                'early_return' => '提早結束 (修改結束時間)',
+                'split' => '中途銷假 (拆單)'
+            ][$type];
+
+            $botId = getenv("LINE_BOT_ID");
+            $approvalCommand = "/同意銷假 $uuid";
+            $encodedQuery = rawurlencode($approvalCommand);
+            $approvalLink = "line://oaMessage/@" . $botId . "/?" . $encodedQuery;
+
+            $msgText =
             "🔔 銷假/修改申請\n\n" .
             "員工：{$userName}\n" .
             "類型：{$typeText}\n" .
-            "變更內容：{$date}\n\n" .
-            "👉 點擊以下連結，系統將自動填入「/同意銷假」指令，請直接送出即可完成簽核：\n" .
+            "變更內容：{$date}" .
+            $splitPreview .
+            "\n\n👉 點擊以下連結，系統將自動填入「/同意銷假」指令，請直接送出即可完成簽核：\n" .
             $approvalLink .
             "\n\n若不同意，請口頭告知申請者即可，無需操作此連結。";
 
@@ -176,17 +198,17 @@ class RevokeHandler {
                 "text" => $msgText
             ]
         ]);
+        } catch (Exception $e) {
+            $this->db->rollBack();
+            replyTextMessage($this->replyToken, "❌ 申請建立失敗，請稍後再試。");
+        }
     }
 
-    // 亂數產生器
+    // 使用 random_bytes() 產生密碼學安全的 UUID v4
     private function generateUuid(): string {
-        return sprintf(
-            '%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
-            mt_rand(0, 0xffff), mt_rand(0, 0xffff),
-            mt_rand(0, 0xffff),
-            mt_rand(0, 0x0fff) | 0x4000,
-            mt_rand(0, 0x3fff) | 0x8000,
-            mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff)
-        );
+        $data = random_bytes(16);
+        $data[6] = chr((ord($data[6]) & 0x0f) | 0x40);
+        $data[8] = chr((ord($data[8]) & 0x3f) | 0x80);
+        return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
     }
 }
