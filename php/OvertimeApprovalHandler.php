@@ -31,55 +31,57 @@ class OvertimeApprovalHandler {
 
     private function handleApproveOvertime($replyToken, $uuid) {
         try {
-            // 1. 撈出待審核的加班紀錄
+            // 1. 開啟交易 (Transaction)，確保所有讀取與寫入均在同一個一致性視窗內執行
+            $this->db->beginTransaction();
+
+            // 2. FOR UPDATE 作為所有後續操作的唯一可信資料來源
             $stmt = $this->db->prepare("
                 SELECT * FROM overtime_requests 
                 WHERE overtime_uuid = ? AND status = 'pending'
+                FOR UPDATE
             ");
             $stmt->execute([$uuid]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
         
             if (!$row) {
+                $this->db->rollBack();
                 replyTextMessage($replyToken, "【系統提示】找不到此加班申請，或該單據已完成簽核。");
                 return;
             }
-        
-            // 2. 權限檢查：是否為該員工的主管？
+
+            // 3. 授權查詢在 Transaction 內，基於已鎖定的 $row['user_id']
             $bossStmt = $this->db->prepare("SELECT role FROM users WHERE user_id = ?");
             $bossStmt->execute([$this->lineId]);
             $userRole = $bossStmt->fetchColumn();
 
             if ($userRole !== 'boss') {
                 $checkStmt = $this->db->prepare("
-                    SELECT COUNT(*) 
-                    FROM user_supervisors 
+                    SELECT COUNT(*)
+                    FROM user_supervisors
                     WHERE user_id = ? AND supervisor_id = ?
                 ");
                 $checkStmt->execute([$row['user_id'], $this->lineId]);
                 $isSupervisor = $checkStmt->fetchColumn();
             
                 if (!$isSupervisor) {
+                    $this->db->rollBack();
                     replyTextMessage($replyToken, "【權限不足】您不是員工 {$row['user_name']} 的主管，無法簽核。");
                     return;
                 }
             }
-        
-            // 3. 開啟交易 (Transaction) 確保資料一致性
-            $this->db->beginTransaction();
-
-            // (A) 更新加班單狀態
+            // 4. 更新加班申請狀態為已核准
             $updateStmt = $this->db->prepare("
-                UPDATE overtime_requests 
-                SET status = 'approved'
+                UPDATE overtime_requests
+                SET status = 'approved', approved_by = ?, approved_at = NOW()
                 WHERE overtime_uuid = ?
             ");
             $updateStmt->execute([$this->lineId, $uuid]);
 
-            // (B) 🔥 關鍵修正：將加班時數加入員工的「補休存摺」
+            // 5. 將加班時數加入員工的「補休存摺」
             $addHours = floatval($row['hours']); // 確保是數字
             $updateUser = $this->db->prepare("
-                UPDATE users 
-                SET comp_leave_hours = comp_leave_hours + ? 
+                UPDATE users
+                SET comp_leave_hours = comp_leave_hours + ?
                 WHERE user_id = ?
             ");
             $updateUser->execute([$addHours, $row['user_id']]);
@@ -88,13 +90,13 @@ class OvertimeApprovalHandler {
             $this->db->commit();
 
             // ----------------------------------------------------
-            // 4. 發送通知
+            // 6. 發送通知
             // ----------------------------------------------------
             
             // 準備顯示用的時間字串
             $start = new DateTime($row['start_at']);
             $end   = new DateTime($row['end_at']);
-            $dateStr = $start->format('Y-m-d');
+            $dateStr   = $start->format('Y-m-d');
             $timeRange = $start->format('H:i') . ' ~ ' . $end->format('H:i');
 
             // 回覆主管 (Flex Message)
@@ -106,7 +108,7 @@ class OvertimeApprovalHandler {
                     "加班日期" => $dateStr,
                     "加班時段" => $timeRange,
                     "核准時數" => number_format($addHours, 1) . " 小時",
-                    "目前餘額" => "已自動存入員工補休帳戶" // 提示主管已入帳
+                    "目前餘額" => "已自動存入員工補休帳戶"
                 ],
                 "#06C755"
             );

@@ -1,6 +1,16 @@
 <?php
 // overtime_api.php
 header("Content-Type: application/json; charset=utf-8");
+ini_set('display_errors', 0);
+error_reporting(E_ALL);
+ini_set('log_errors', 1);
+
+$logDir = __DIR__ . '/logs';
+if (!is_dir($logDir)) {
+    mkdir($logDir, 0750, true);
+}
+ini_set('error_log', $logDir . '/overtime_error.log');
+
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/Db.php';
 require_once __DIR__ . '/utils.php';
@@ -11,16 +21,30 @@ if (!$input) {
     exit;
 }
 
-$userId = $input['userId'];
-$date = $input['date'];
-$startTime = $input['start'];
-$endTime = $input['end'];
-$reason = $input['reason'];
-
-if (!$userId || !$date || !$startTime || !$endTime || !$reason) {
+if (
+    !isset($input['accessToken'], $input['date'], $input['start'], $input['end'], $input['reason']) ||
+    $input['accessToken'] === '' || $input['date'] === '' ||
+    $input['start'] === '' || $input['end'] === '' || $input['reason'] === ''
+) {
     echo json_encode(['status' => 'error', 'message' => '所有欄位皆為必填']);
     exit;
 }
+
+$accessToken = $input['accessToken'];
+try {
+    $verifiedUserId = verifyLineAccessToken($accessToken);
+} catch (Exception $e) {
+    error_log('[overtime_api] Token verification failed: ' . $e->getMessage());
+    http_response_code(401);
+    echo json_encode(['status' => 'error', 'message' => '身份驗證失敗，請重新登入。']);
+    exit;
+}
+
+$userId    = $verifiedUserId;
+$date      = $input['date'];
+$startTime = $input['start'];
+$endTime   = $input['end'];
+$reason    = $input['reason'];
 
 try {
     $db = Database::getConnection();
@@ -30,16 +54,23 @@ try {
     $stmt->execute([$userId]);
     $userName = $stmt->fetchColumn() ?: "員工";
 
-    // 2. 計算時數
+    // 2. 驗證格式並計算時數
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) ||
+        !preg_match('/^\d{2}:\d{2}$/', $startTime) ||
+        !preg_match('/^\d{2}:\d{2}$/', $endTime)) {
+        throw new Exception("日期或時間格式無效");
+    }
+
     $startAt = "$date $startTime:00";
     $endAt   = "$date $endTime:00";
-    $t1 = strtotime($startAt);
-    $t2 = strtotime($endAt);
-    if ($t2 <= $t1) throw new Exception("結束時間必須晚於開始時間");
-    $hours = round(($t2 - $t1) / 3600, 1);
+
+    $hours = calculateOvertimeHours($startAt, $endAt);
+    if ($hours <= 0) {
+        throw new Exception("加班時數計算結果為零或負數，請確認時段是否正確。");
+    }
 
     // 3. 寫入資料庫
-    $uuid = uniqid("OT-");
+    $uuid = generateOvertimeUuid();
     $stmt = $db->prepare("
         INSERT INTO overtime_requests 
         (overtime_uuid, user_id, user_name, start_at, end_at, hours, reason, status, created_at)
@@ -72,7 +103,6 @@ try {
     ];
 
     // --- 訊息 2：系統提示 (告訴員工轉給誰) ---
-    // 查詢主管姓名
     $supStmt = $db->prepare("
         SELECT u.name 
         FROM user_supervisors us
@@ -89,21 +119,21 @@ try {
             "text" => $hintText
         ];
     } else {
-        // 如果沒設定主管，還是給個提示
         $messages[] = [
             "type" => "text",
             "text" => "【系統提示】\n尚未設定您的直屬主管，請自行確認轉傳對象。"
         ];
     }
 
-    // 6. 回傳給前端 (注意這裡是回傳 messages 陣列)
+    // 5. 回傳給前端
     echo json_encode([
-        'status' => 'success', 
-        'message' => '申請成功',
-        'messages' => $messages // 🔥 包含兩則訊息
+        'status'   => 'success',
+        'message'  => '申請成功',
+        'messages' => $messages
     ]);
 
 } catch (Exception $e) {
+    error_log('[overtime_api] Exception: ' . $e->getMessage());
     http_response_code(400);
     echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
 }
