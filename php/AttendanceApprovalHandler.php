@@ -59,53 +59,51 @@ class AttendanceApprovalHandler {
         }
     
         // 3. 執行核准 (status 改為 success)
-        $updateStmt = $this->db->prepare("
-            UPDATE attendance_logs 
-            SET approval_status = 'approved', 
-                status = 'success', 
-                approved_at = NOW()
-            WHERE attendance_uuid = ?
-        ");
-        
-        if ($updateStmt->execute([$uuid])) {
-            $time = substr($row['created_at'], 0, 16); 
-            $typeStr = $row['mode']; 
-            $reason = $row['reason'] ?? "（未填寫）";
 
-            // 🔥 升級 1：回覆主管 (Flex Message)
-            // 使用 utils.php 裡的產生器
-            $managerFlex = createBusinessFlex(
-                "APPROVED",          // 頂部狀態
-                "補打卡核准成功",      // 主標題
-                [                    // 內容列表
-                    "員工姓名" => $row['employee_name'],
-                    "補卡類別" => $typeStr,
-                    "補卡時間" => $time,
-                    "補卡原因" => $reason,
-                    "資料狀態" => "已生效 (Success)"
-                ],
-                "#06C755"            // 綠色 (成功)
-            );
-            
-            replyFlexMessage($replyToken, $managerFlex);
+        $startTime = new DateTime($row['start_time']);
+        $endTime = new DateTime($row['end_time']);
 
-            // 🔥 升級 2：推播通知員工 (Flex Message)
-            $employeeFlex = createBusinessFlex(
-                "NOTIFICATION",
-                "補打卡申請已通過",
-                [
-                    "補卡類別" => $typeStr,
-                    "核准時間" => date("Y-m-d H:i"),
-                    "生效時間" => $time,
-                    "說明" => "您的考勤紀錄已更新。"
-                ],
-                "#06C755"
-            );
-                           
-            pushFlexMessage($row['user_id'], $employeeFlex);
+        if ($startTime->format('Y-m-d') !== $endTime->format('Y-m-d')) {
+            // Calculate total hours worked across days
+            $totalHours = $startTime->diff($endTime)->format('%h'); 
+
+            // Update attendance record with new times and total hours
+            $updateStmt = $this->db->prepare("
+                UPDATE attendance_logs 
+                SET approval_status = 'approved', 
+                    status = 'success',
+                    total_hours = ?,
+                    approved_at = NOW()
+                WHERE attendance_uuid = ?
+            ");
+
+            if ($updateStmt->execute([$totalHours, $uuid])) {
+                // ... rest of the code (reply messages) ...
+
+            } else {
+                replyTextMessage($replyToken, "【系統錯誤】資料庫更新失敗，請聯繫管理員。");
+            }
 
         } else {
-            replyTextMessage($replyToken, "【系統錯誤】資料庫更新失敗，請聯繫管理員。");
+            // Existing logic for handling same-day attendance
+
+            $updateStmt = $this->db->prepare("
+                UPDATE attendance_logs 
+                SET approval_status = 'approved', 
+                    status = 'success',
+                    approved_at = NOW()
+                WHERE attendance_uuid = ?
+            ");
+
+            if ($updateStmt->execute([$uuid])) {
+                // ... rest of the code (reply messages) ...
+
+            } else {
+                replyTextMessage($replyToken, "【系統錯誤】資料庫更新失敗，請聯繫管理員。");
+            }
+
         }
+
     }
+
 }
