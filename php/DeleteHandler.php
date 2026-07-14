@@ -52,44 +52,50 @@ class DeleteHandler {
      * 刪除請假並退還時數
      */
     private function handleDeleteRequest($requestGroupId) {
-        // 1. 查詢紀錄與扣抵明細
-        $stmt = $this->db->prepare("SELECT * FROM leave_requests WHERE request_group_id = ?");
-        $stmt->execute([$requestGroupId]);
-        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        if (!$rows) {
-            replyTextMessage($this->replyToken, "❌ 找不到該筆請假紀錄。");
-            return;
-        }
-
-        // 2. 檢查權限與狀態
-        $totalRefundAnnual = 0;
-        $totalRefundComp = 0;
-
-        foreach ($rows as $row) {
-            if ($row['user_id'] !== $this->userId) {
-                replyTextMessage($this->replyToken, "⚠️ 你無權刪除此請假紀錄。");
-                return;
-            }
-            if ($row['status'] !== "pending") {
-                replyTextMessage($this->replyToken, "❌ 此請假已簽核完成，無法撤回。");
-                return;
-            }
-            // 累計需要退還的時數
-            $totalRefundAnnual += floatval($row['deduct_annual'] ?? 0);
-            $totalRefundComp   += floatval($row['deduct_comp'] ?? 0);
-        }
-
         try {
-            // 3. 🔥 開啟交易進行退款與刪除
+            // 1. 先開啟交易
             $this->db->beginTransaction();
 
+            // 2. 查詢紀錄並立刻加上 FOR UPDATE 鎖定，防止此時主管正在簽核
+            $stmt = $this->db->prepare("SELECT * FROM leave_requests WHERE request_group_id = ? FOR UPDATE");
+            $stmt->execute([$requestGroupId]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            if (!$rows) {
+                $this->db->rollBack(); // 找不到資料也要 rollback 釋放鎖
+                replyTextMessage($this->replyToken, "❌ 找不到該筆請假紀錄。");
+                return;
+            }
+            // 3. 檢查權限與狀態
+            foreach ($rows as $row) {
+                if ($row['user_id'] !== $this->userId) {
+                    $this->db->rollBack();
+                    replyTextMessage($this->replyToken, "⚠️ 你無權刪除此請假紀錄。");
+                    return;
+                }
+                if ($row['status'] !== "pending") {
+                    $this->db->rollBack();
+                    replyTextMessage($this->replyToken, "❌ 此請假已簽核完成，無法撤回。");
+                    return;
+                }
+            }
+
+            // 4. 累計需要退還的時數
+            $totalRefundAnnual = 0;
+            $totalRefundComp   = 0;
+
+            foreach ($rows as $row) {
+                $totalRefundAnnual += floatval($row['deduct_annual'] ?? 0);
+                $totalRefundComp   += floatval($row['deduct_comp'] ?? 0);
+            }
+
+            // 5. 🔥 開啟交易進行退款與刪除
             // (A) 退還時數到使用者的存摺
             if ($totalRefundAnnual > 0 || $totalRefundComp > 0) {
                 $updUser = $this->db->prepare("
-                    UPDATE users 
-                    SET annual_leave_hours = annual_leave_hours + ?, 
-                        comp_leave_hours = comp_leave_hours + ? 
+                    UPDATE users
+                    SET annual_leave_hours = annual_leave_hours + ?,
+                        comp_leave_hours = comp_leave_hours + ?
                     WHERE user_id = ?
                 ");
                 $updUser->execute([$totalRefundAnnual, $totalRefundComp, $this->userId]);
