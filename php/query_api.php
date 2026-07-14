@@ -33,21 +33,18 @@ if (!function_exists('calculateAnnualLeaveDaysStrict')) {
         $hireDay = (int)$hire->format('j');
 
         $yearsOfService = $targetYear - $hireYear;
-        if ($yearsOfService < 1) return 0; 
+        if ($yearsOfService < 1) return 0;
 
-        $prevDays = getLawDays($yearsOfService - 1); 
-        $currentDays = getLawDays($yearsOfService);  
-
+        // Restore the correct logic for the current year's segmentation, don't use a loop to accumulate
+        $prevDays = getLawDays($yearsOfService - 1);
+        $currentDays = getLawDays($yearsOfService);
         $monthsBefore = $hireMonth - 1;
         $daysBefore = $hireDay - 1;
         $daysInAnniversaryMonth = (int)date('t', strtotime("$targetYear-$hireMonth-01"));
-        
         $ratioBefore = ($monthsBefore + ($daysBefore / $daysInAnniversaryMonth)) / 12;
-
         $part1 = $ratioBefore * $prevDays;
         $part2 = $currentDays - ($ratioBefore * $currentDays);
         $totalDays = $part1 + $part2;
-
         return ceil(round($totalDays, 2) * 10) / 10;
     }
 }
@@ -61,6 +58,11 @@ try {
         $userId = $_GET['userId'] ?? '';
         if (empty($userId)) throw new Exception("缺少 userId");
 
+        // Move here: Ensure permissions are checked after $userId is retrieved
+        if (!function_exists('hasPermission') || !hasPermission($userId)) {
+            throw new Exception("使用者沒有權限");
+        }
+        
         // 1. 查詢使用者的「到職日」、「補休餘額」與「歷年剩餘特休」
         $stmtUser = $db->prepare("SELECT start_date, comp_leave_hours, last_year_annual_hours FROM users WHERE user_id = ?");
         $stmtUser->execute([$userId]);
