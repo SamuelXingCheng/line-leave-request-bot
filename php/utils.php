@@ -297,8 +297,19 @@ function calculateHours($startStr, $endStr) {
             if ($e > $s) {
                 $daySeconds = strtotime("$dateString $e") - strtotime("$dateString $s");
                 $dayHours = $daySeconds / 3600;
-                // 扣除午休
-                if ($s < $lunchStart && $e >= $lunchEnd) { $dayHours -= 1; }
+                
+                // 🔥 精準計算午休交集 (Overlap)
+                $lunchStartSec = strtotime("$dateString $lunchStart");
+                $lunchEndSec   = strtotime("$dateString $lunchEnd");
+                $reqStartSec   = strtotime("$dateString $s");
+                $reqEndSec     = strtotime("$dateString $e");
+
+                $overlapStart = max($reqStartSec, $lunchStartSec);
+                $overlapEnd   = min($reqEndSec, $lunchEndSec);
+
+                if ($overlapStart < $overlapEnd) {
+                    $dayHours -= (($overlapEnd - $overlapStart) / 3600);
+                }
                 $totalHours += $dayHours;
             }
         }
@@ -318,15 +329,16 @@ function calculateOvertimeHours($startStr, $endStr) {
     $totalSeconds = $end - $start;
     $totalHours = $totalSeconds / 3600;
 
-    // 選項：是否要扣除午休？ 
-    // 很多公司規定加班滿 4 小時要休息 0.5 或 1 小時。
-    // 這裡提供一個簡單判斷：如果加班時間跨越了 12:00-13:00，扣除 1 小時。
-    $sTime = date('H:i:s', $start);
-    $eTime = date('H:i:s', $end);
+    // 🔥 同樣改為精準計算交集
+    $dateString = date('Y-m-d', $start); // 假設加班不跨日
+    $lunchStartSec = strtotime("$dateString 12:00:00");
+    $lunchEndSec   = strtotime("$dateString 13:00:00");
     
-    // 如果加班起始在 12:00 前，且結束在 13:00 後，扣除一小時午休
-    if ($sTime < '12:00:00' && $eTime > '13:00:00') {
-        $totalHours -= 1;
+    $overlapStart = max($start, $lunchStartSec);
+    $overlapEnd   = min($end, $lunchEndSec);
+    
+    if ($overlapStart < $overlapEnd) {
+        $totalHours -= (($overlapEnd - $overlapStart) / 3600);
     }
 
     // 格式化：保留一位小數

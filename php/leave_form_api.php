@@ -49,6 +49,21 @@ try {
     }
 
     // ----------------------------------------------------
+    // 🔥 補上這裡：時段重疊防呆檢查
+    // ----------------------------------------------------
+        $overlapStmt = $db->prepare("
+            SELECT COUNT(*) FROM leave_requests 
+            WHERE user_id = ? 
+            AND status IN ('pending', 'approved')
+            AND start_at < ? AND end_at > ?
+        ");
+        // 判斷交集的標準公式：StartA < EndB AND EndA > StartB
+        $overlapStmt->execute([$userId, $endAt, $startAt]);
+        if ($overlapStmt->fetchColumn() > 0) {
+            throw new Exception("您申請的時段與現有假單（或審核中的申請）重疊，請至「查詢請假」確認。");
+        }
+
+    // ----------------------------------------------------
     // 🔥 核心修改：特休優先抵扣補休邏輯（含浮點數安全比較）
     // ----------------------------------------------------
     $leaveType = $input['leaveType'];
