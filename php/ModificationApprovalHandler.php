@@ -25,7 +25,13 @@ class ModificationApprovalHandler {
         $resultMsg = $this->approveModification($uuid);
         
         if ($this->replyToken) {
+            // LINE 機器人模式：直接回覆訊息
             replyTextMessage($this->replyToken, $resultMsg);
+        } else {
+            // 🔥 網頁 API 模式：遇到錯誤字串必須拋出例外，讓 API 知道這筆失敗了
+            if (strpos($resultMsg, '⚠️') !== false) {
+                throw new Exception($resultMsg);
+            }
         }
         return true;
     }
@@ -65,14 +71,22 @@ class ModificationApprovalHandler {
                 return "⚠️ 原始假單不存在或狀態不可修改（可能已註銷或仍在審核中）。";
             }
 
+            // 🔥 新增：老闆特權判斷
+            $bossStmt = $this->db->prepare("SELECT role FROM users WHERE user_id = ?");
+            $bossStmt->execute([$this->lineId]);
+            $isBoss = ($bossStmt->fetchColumn() === 'boss');
+
             $authStmt = $this->db->prepare("
                 SELECT COUNT(*) FROM user_supervisors
                 WHERE user_id = ? AND supervisor_id = ?
             ");
             $authStmt->execute([$original['user_id'], $this->lineId]);
-            if ((int)$authStmt->fetchColumn() === 0) {
+            $isSupervisor = ((int)$authStmt->fetchColumn() > 0);
+
+            // 必須兩者皆非，才阻擋權限
+            if (!$isSupervisor && !$isBoss) {
                 $this->db->rollBack();
-                return "您沒有核准此申請的權限。";
+                return "⚠️ 您沒有核准此申請的權限。";
             }
 
             // ==========================================

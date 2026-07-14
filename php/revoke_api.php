@@ -287,12 +287,17 @@ try {
             exit;
         }
 
-        $stmt = $db->prepare("SELECT user_name, leave_type, start_at, end_at FROM leave_requests WHERE id = ?");
+        // 🔥 補上 status 欄位的撈取
+        $stmt = $db->prepare("SELECT user_name, leave_type, start_at, end_at, status FROM leave_requests WHERE id = ?");
         $stmt->execute([$leaveId]);
         $original = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$original) throw new BusinessException("找不到原始假單資料");
-
+        // 🔥 新增：確保只能對「已核准」的單子做變更
+        if ($original['status'] !== 'approved') {
+            throw new BusinessException("只能變更「已核准」的假單，若尚在審核中，請直接撤回重新申請。");
+        }
+        
         // 🔥 新增：檢查是否已有尚未處理的變更單，防止重複送出
         $checkStmt = $db->prepare("SELECT COUNT(*) FROM leave_modifications WHERE leave_request_id = ? AND status = 'pending'");
         $checkStmt->execute([$leaveId]);
