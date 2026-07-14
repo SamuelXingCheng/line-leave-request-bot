@@ -143,10 +143,27 @@ try {
             $db->beginTransaction();
             try {
                 if ($item['type'] === 'leave') {
-                    $db->prepare("UPDATE leave_requests SET status = 'rejected' WHERE id = ?")->execute([$id]);
-                    $db->prepare("UPDATE leave_approvals SET status = 'rejected', updated_at = NOW() WHERE request_id = ? AND supervisor_id = ?")->execute([$id, $lineId]);
-                    $req = $db->prepare("SELECT user_id, start_at FROM leave_requests WHERE id = ?"); $req->execute([$id]); $res = $req->fetch();
-                    if ($res) pushMessage($res['user_id'], ['type'=>'text', 'text'=>"【主管退件】您於 {$res['start_at']} 的假單已被駁回。"]);
+                    // 1. 查詢假單資料並鎖定
+                    $req = $db->prepare("SELECT user_id, start_at, deduct_annual, deduct_comp FROM leave_requests WHERE id = ? FOR UPDATE");
+                    $req->execute([$id]); 
+                    $res = $req->fetch(PDO::FETCH_ASSOC);
+                    
+                    if ($res) {
+                        // 2. 退還已扣除的時數到 users 表
+                        $refundAnnual = floatval($res['deduct_annual'] ?? 0);
+                        $refundComp   = floatval($res['deduct_comp'] ?? 0);
+                        if ($refundAnnual > 0 || $refundComp > 0) {
+                            $db->prepare("UPDATE users SET annual_leave_hours = annual_leave_hours + ?, comp_leave_hours = comp_leave_hours + ? WHERE user_id = ?")
+                            ->execute([$refundAnnual, $refundComp, $res['user_id']]);
+                        }
+                        
+                        // 3. 更新假單與簽核狀態
+                        $db->prepare("UPDATE leave_requests SET status = 'rejected' WHERE id = ?")->execute([$id]);
+                        $db->prepare("UPDATE leave_approvals SET status = 'rejected', updated_at = NOW() WHERE request_id = ? AND supervisor_id = ?")->execute([$id, $lineId]);
+                        
+                        // 4. 發送通知給員工
+                        pushMessage($res['user_id'], ['type'=>'text', 'text'=>"【主管退件】您於 {$res['start_at']} 的假單已被駁回，已退還扣抵時數。"]);
+                    }
                 } elseif ($item['type'] === 'overtime') {
                     $db->prepare("UPDATE overtime_requests SET status = 'rejected' WHERE id = ?")->execute([$id]);
                     $otReq = $db->prepare("SELECT user_id, start_at FROM overtime_requests WHERE id = ?"); $otReq->execute([$id]); $ot = $otReq->fetch();

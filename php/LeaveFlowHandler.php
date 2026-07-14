@@ -279,162 +279,53 @@ class LeaveFlowHandler {
         $endTime   = $this->session->get("end_time");
         $leaveType = $this->session->get("leave_type");
 
-        // 1. 計算時數並做零時數守門
-            $requestHours = $this->calculateHours("$startDate $startTime", "$endDate $endTime");
-                if ($requestHours <= 0) {
-                    replyTextMessage($this->event['replyToken'], "⚠️ 請假時數為零，所選時段可能為假日或非工作時段，請重新申請。");
-                $this->session->clear();
-                return true;
-            }
+        // 1. 準備要傳給內部 API 的資料 (統一交由 leave_form_api 處理扣抵)
+        $payload = [
+            'userId'    => $this->lineId,
+            'startDate' => $startDate,
+            'startTime' => $startTime,
+            'endDate'   => $endDate,
+            'endTime'   => $endTime,
+            'leaveType' => $leaveType,
+            'reason'    => $reason
+        ];
 
-        $autoSwitchMsg = "";
-        if ($leaveType === "特休假") {
-            $stats = getLeaveSummary($this->lineId);
-            $compBalance = $stats['remainingComp'];
+        // 2. 動態組裝內部 API 網址
+        $protocol = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? "https" : "http";
+        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $path = rtrim(dirname($_SERVER['SCRIPT_NAME']), '/');
+        $apiUrl = $protocol . "://" . $host . $path . "/leave_form_api.php";
 
-            if ($compBalance >= $requestHours) {
-                $leaveType = "補休假";
-                $autoSwitchMsg = "\n💡 系統偵測到您有補休額度，已自動為您優先使用補休。";
-            }
-        }
+        // 3. 透過 cURL 發送內部請求
+        $ch = curl_init($apiUrl);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
 
-        // 2. 查員工資訊
-        $stmt = $this->db->prepare("SELECT name, role FROM users WHERE user_id = ?");
-        $stmt->execute([$this->lineId]);
-        $userRow = $stmt->fetch(PDO::FETCH_ASSOC);
-        
-        $userName = $userRow['name'] ?? "未知姓名";
-        $userRole = $userRow['role'] ?? "employee"; 
-        $isBoss = ($userRole === 'boss');
-
-        // 3. 決定初始狀態
-        $initialStatus = $isBoss ? 'approved' : 'pending';
-
-        // 4. 查主管
-        $supervisors = [];
-        if (!$isBoss) {
-            $stmt = $this->db->prepare("SELECT supervisor_id FROM user_supervisors WHERE user_id = ?");
-            $stmt->execute([$this->lineId]);
-            $supervisors = $stmt->fetchAll(PDO::FETCH_COLUMN);
-            if (empty($supervisors)) {
-                replyTextMessage($this->event['replyToken'], "⚠️ 系統未設定您的主管，無法送出請假申請。");
-                return true; 
-            }
-        }
-
-        $requestGroupId = $this->generateUuid();
-
-        
-        // 5. 開始交易：寫入假單 + 扣除餘額
-        try {
-            $this->db->beginTransaction();
-
-            // Transaction 內取得最新餘額
-            $balanceStmt = $this->db->prepare(
-                "SELECT annual_leave_hours, comp_leave_hours FROM users WHERE user_id = ? FOR UPDATE"
-            );
-            $balanceStmt->execute([$this->lineId]);
-            $balance = $balanceStmt->fetch(PDO::FETCH_ASSOC);
-
-            $availableComp   = floatval($balance['comp_leave_hours'] ?? 0);
-            $availableAnnual = floatval($balance['annual_leave_hours'] ?? 0);
-
-            if ($leaveType === "補休假" && $availableComp < $requestHours) {
-                $this->db->rollBack();  // 明確關閉 Transaction
-                replyTextMessage($this->event['replyToken'],
-                    "補休餘額不足，目前剩餘 {$availableComp} 小時，請確認後重新申請。");
-                $this->session->clear();
-                return true;
-            }
-            if ($leaveType === "特休假" && $availableAnnual < $requestHours) {
-                $this->db->rollBack();  // 明確關閉 Transaction
-                replyTextMessage($this->event['replyToken'],
-                    "特休餘額不足，目前剩餘 {$availableAnnual} 小時，請確認後重新申請。");
-                $this->session->clear();
-                return true;
-            }
-
-            // 5a. 存入假單
-            // 根據最終假別決定扣除量（在 Transaction 開始、餘額驗證通過之後）
-            $deductAnnual = ($leaveType === "特休假") ? $requestHours : 0.0;
-            $deductComp   = ($leaveType === "補休假") ? $requestHours : 0.0;
-
-            // INSERT 補入欄位
-            $stmt = $this->db->prepare("
-                INSERT INTO leave_requests (
-                    request_group_id, user_id, user_name, leave_type, reason,
-                    start_at, end_at, leave_hours, deduct_annual, deduct_comp, status, created_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
-            ");
-            $stmt->execute([
-                $requestGroupId, $this->lineId, $userName, $leaveType, $reason,
-                $startDate . ' ' . $startTime, $endDate . ' ' . $endTime,
-                $requestHours, $deductAnnual, $deductComp, $initialStatus
-            ]);
-            $leaveId = $this->db->lastInsertId();
-
-            // 5b. 簽核關聯
-            if (!$isBoss) {
-                foreach ($supervisors as $supId) {
-                    $stmt = $this->db->prepare("
-                        INSERT INTO leave_approvals (request_id, supervisor_id, status)
-                        VALUES (?, ?, 'pending')
-                    ");
-                    $stmt->execute([$leaveId, $supId]);
+        // 4. 解析結果並直接回覆訊息給使用者
+        if ($httpCode === 200 && $response) {
+            $result = json_decode($response, true);
+            if (isset($result['status']) && $result['status'] === 'success') {
+                // 將 API 產生的商務版 Flex Message 陣列，直接回覆到聊天室
+                if (!empty($result['forward_message'])) {
+                    replyMessage($this->event['replyToken'], $result['forward_message']);
+                } else {
+                    replyTextMessage($this->event['replyToken'], "✅ 請假申請已成功送出！");
                 }
+            } else {
+                replyTextMessage($this->event['replyToken'], "⚠️ 申請失敗：" . ($result['message'] ?? '未知錯誤'));
             }
-
-            // 5c. 扣除對應餘額（老闆直接核准，同樣扣除）
-            if ($leaveType === "補休假") {
-                $stmt = $this->db->prepare(
-                    "UPDATE users SET comp_leave_hours = comp_leave_hours - ? WHERE user_id = ?"
-                );
-                $stmt->execute([$requestHours, $this->lineId]);
-            } elseif ($leaveType === "特休假") {
-                $stmt = $this->db->prepare("
-                    UPDATE users SET annual_leave_hours = annual_leave_hours - ? WHERE user_id = ?
-                ");
-                $stmt->execute([$requestHours, $this->lineId]);
-            }
-
-            $this->db->commit();
-        } catch (Exception $e) {
-            $this->db->rollBack();
-            replyTextMessage($this->event['replyToken'], "⚠️ 系統錯誤，請假申請儲存失敗，請稍後再試。");
-            return true;
-        }
-
-        // 6. 回覆訊息
-        if ($isBoss) {
-            $msg = "【申請已歸檔】\n" .
-                "日期｜{$startDate} {$startTime} ~ {$endDate} {$endTime}\n" .
-                "假別｜{$leaveType}{$autoSwitchMsg}";
-            replyTextMessage($this->event['replyToken'], $msg);
         } else {
-            $requests = [[
-                "start_at"       => $startDate . ' ' . $startTime,
-                "end_at"         => $endDate . ' ' . $endTime,
-                "start_date"     => $startDate,
-                "start_time"     => $startTime,
-                "end_date"       => $endDate,
-                "end_time"       => $endTime,
-                "leave_type"     => $leaveType,
-                "reason"         => $reason . $autoSwitchMsg,
-                "name"           => $userName,
-                "supervisor_ids" => $supervisors
-            ]];
-
-            $messages = buildForwardMessage($requests, $requestGroupId);
-            
-            if (!empty($autoSwitchMsg)) {
-                $hintMsg = ["type" => "text", "text" => "💡 溫馨提醒：已優先扣除您的加班補休時數。"];
-                array_unshift($messages, $hintMsg);
-            }
-
-            replyMessage($this->event['replyToken'], $messages);
+            error_log("Leave API Call Failed: HTTP $httpCode, Response: $response");
+            replyTextMessage($this->event['replyToken'], "⚠️ 系統內部連線異常，請稍後再試。");
         }
 
+        // 清除階段狀態
         $this->session->clear();
         return true;
     }
