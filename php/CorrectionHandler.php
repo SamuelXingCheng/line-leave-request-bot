@@ -180,9 +180,10 @@ class CorrectionHandler {
 
         // 🔥 2. 決定狀態
         $approvalStatus = $isBoss ? 'approved' : 'pending';
+        $recordStatus   = $isBoss ? 'success' : 'pending';
 
         // 3. 存檔 (傳入狀態)
-        $uuid = $this->saveCorrection($date, $time, $type, $reason, $approvalStatus);
+        $uuid = $this->saveCorrection($date, $time, $type, $reason, $approvalStatus, $recordStatus);
 
         // 4. 回覆訊息
         if ($isBoss) {
@@ -213,19 +214,18 @@ class CorrectionHandler {
         $this->session->clear();
     }
 
-    private function saveCorrection($date, $time, $type, $reason, $approvalStatus) {
+    private function saveCorrection($date, $time, $type, $reason, $approvalStatus, $recordStatus) {
         $uuid = $this->db->query("SELECT UUID()")->fetchColumn();
 
+        // 把寫死的 'pending' 換成 ?
         $stmt = $this->db->prepare("
             INSERT INTO attendance_logs 
             (attendance_uuid, user_id, mode, latitude, longitude, distance, status, reason, approval_status, created_at)
-            VALUES (?, ?, ?, NULL, NULL, NULL, 'pending', ?, ?, ?)
+            VALUES (?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?)
         ");
 
         $datetime = $date . ' ' . $time . ':00';
-        // 🔥 注意：這裡多了一個參數 $approvalStatus
-        $stmt->execute([$uuid, $this->lineId, $type, $reason, $approvalStatus, $datetime]);
-
+        // 陣列中多傳入 $recordStatus
+        $stmt->execute([$uuid, $this->lineId, $type, $recordStatus, $reason, $approvalStatus, $datetime]);
         return $uuid;
     }
-}
