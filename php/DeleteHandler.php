@@ -160,22 +160,36 @@ class DeleteHandler {
     }
 
     private function handleDeleteOvertime($uuid) {
-        $stmt = $this->db->prepare("SELECT user_id, status FROM overtime_requests WHERE overtime_uuid = ?");
-        $stmt->execute([$uuid]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        try {
+            // 🔥 先開啟交易
+            $this->db->beginTransaction();
 
-        if (!$row || $row['user_id'] !== $this->userId) {
-            replyTextMessage($this->replyToken, "❌ 找不到紀錄或權限不足。");
-            return;
+            // 🔥 加上 FOR UPDATE 鎖定，防堵主管同時正在簽核
+            $stmt = $this->db->prepare("SELECT user_id, status FROM overtime_requests WHERE overtime_uuid = ? FOR UPDATE");
+            $stmt->execute([$uuid]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$row || $row['user_id'] !== $this->userId) {
+                $this->db->rollBack();
+                replyTextMessage($this->replyToken, "❌ 找不到紀錄或權限不足。");
+                return;
+            }
+
+            if ($row['status'] !== 'pending') {
+                $this->db->rollBack();
+                replyTextMessage($this->replyToken, "❌ 只能刪除「待審核」的紀錄。");
+                return;
+            }
+
+            $this->db->prepare("DELETE FROM overtime_requests WHERE overtime_uuid = ?")->execute([$uuid]);
+            
+            // 🔥 提交交易
+            $this->db->commit();
+            replyTextMessage($this->replyToken, "🗑️ 已成功刪除該筆加班申請。");
+
+        } catch (Exception $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            replyTextMessage($this->replyToken, "❌ 刪除失敗，請稍後再試。");
         }
-
-        if ($row['status'] !== 'pending') {
-            replyTextMessage($this->replyToken, "❌ 只能刪除「待審核」的紀錄。");
-            return;
-        }
-
-        // 加班刪除不需退款，因為加班是「核准後」才加時數
-        $this->db->prepare("DELETE FROM overtime_requests WHERE overtime_uuid = ?")->execute([$uuid]);
-        replyTextMessage($this->replyToken, "🗑️ 已成功刪除該筆加班申請。");
     }
 }

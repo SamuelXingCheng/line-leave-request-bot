@@ -103,7 +103,9 @@ try {
                         $req = $db->prepare("SELECT user_id, start_at FROM leave_requests WHERE id = ?"); $req->execute([$id]); $res = $req->fetch();
                         // (依據之前的建議，此處推播可保留或刪除)
                     } elseif ($item['type'] === 'overtime') {
-                        $otReq = $db->prepare("SELECT user_id, start_at, hours FROM overtime_requests WHERE id = ?"); $otReq->execute([$id]); $ot = $otReq->fetch();
+                        $otReq = $db->prepare("SELECT user_id, start_at, hours FROM overtime_requests WHERE id = ? AND status = 'pending' FOR UPDATE"); 
+                        $otReq->execute([$id]); 
+                        $ot = $otReq->fetch();
                         if ($ot) {
                             $db->prepare("UPDATE overtime_requests SET status = 'approved' WHERE id = ?")->execute([$id]);
                             $db->prepare("UPDATE users SET comp_leave_hours = comp_leave_hours + ? WHERE user_id = ?")->execute([$ot['hours'], $ot['user_id']]);
@@ -157,7 +159,7 @@ try {
                             ->execute([$refundAnnual, $refundComp, $res['user_id']]);
                         }
                         
-                        // 3. 更新假單與簽核狀態
+                        // 3. 更新假單與簽核狀態為 rejected
                         $db->prepare("UPDATE leave_requests SET status = 'rejected' WHERE id = ?")->execute([$id]);
                         $db->prepare("UPDATE leave_approvals SET status = 'rejected', updated_at = NOW() WHERE request_id = ? AND supervisor_id = ?")->execute([$id, $lineId]);
                         
@@ -165,9 +167,14 @@ try {
                         pushMessage($res['user_id'], ['type'=>'text', 'text'=>"【主管退件】您於 {$res['start_at']} 的假單已被駁回，已退還扣抵時數。"]);
                     }
                 } elseif ($item['type'] === 'overtime') {
-                    $db->prepare("UPDATE overtime_requests SET status = 'rejected' WHERE id = ?")->execute([$id]);
-                    $otReq = $db->prepare("SELECT user_id, start_at FROM overtime_requests WHERE id = ?"); $otReq->execute([$id]); $ot = $otReq->fetch();
-                    if ($ot) pushMessage($ot['user_id'], ['type'=>'text', 'text'=>"【主管退件】您於 {$ot['start_at']} 的加班單已被駁回。"]);
+                    // 🔥 修正：這裡是退件(駁回)，加上 FOR UPDATE 防呆，並設為 rejected (不給時數)
+                    $otReq = $db->prepare("SELECT user_id, start_at FROM overtime_requests WHERE id = ? AND status = 'pending' FOR UPDATE"); 
+                    $otReq->execute([$id]); 
+                    $ot = $otReq->fetch();
+                    if ($ot) {
+                        $db->prepare("UPDATE overtime_requests SET status = 'rejected' WHERE id = ?")->execute([$id]);
+                        pushMessage($ot['user_id'], ['type'=>'text', 'text'=>"【主管退件】您於 {$ot['start_at']} 的加班單已被駁回。"]);
+                    }
                 } elseif ($item['type'] === 'clockin') {
                     $db->prepare("UPDATE attendance_logs SET approval_status = 'rejected' WHERE id = ?")->execute([$id]);
                     $ckReq = $db->prepare("SELECT user_id, created_at FROM attendance_logs WHERE id = ?"); $ckReq->execute([$id]); $ck = $ckReq->fetch();
