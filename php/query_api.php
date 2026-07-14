@@ -81,15 +81,17 @@ try {
             throw new Exception("使用者沒有權限");
         }
 
-        // 1. 查詢使用者的「到職日」、「補休餘額」與「歷年剩餘特休」
-        $stmtUser = $db->prepare("SELECT start_date, comp_leave_hours, last_year_annual_hours FROM users WHERE user_id = ?");
+        // 1. 查詢使用者資料 (🔥 新增抓取 entitled_annual_hours 與 annual_leave_hours)
+        $stmtUser = $db->prepare("SELECT start_date, comp_leave_hours, last_year_annual_hours, entitled_annual_hours, annual_leave_hours FROM users WHERE user_id = ?");
         $stmtUser->execute([$userId]);
         $user = $stmtUser->fetch(PDO::FETCH_ASSOC);
 
         $hireDate = $user['start_date'] ?? null;
         $remainingComp = floatval($user['comp_leave_hours'] ?? 0); 
-        // 抓取歷年保留下來的特休 (預設0)
         $lastYearAnnual = floatval($user['last_year_annual_hours'] ?? 0); 
+        
+        $currentEntitled = floatval($user['entitled_annual_hours'] ?? 0);
+        $currentAnnualBal = floatval($user['annual_leave_hours'] ?? 0);
 
         // 2. 查詢「今年已核准」的請假總時數
         $currentYear = (int)date('Y');
@@ -112,35 +114,33 @@ try {
         $usedSick     = floatval($usedStats['病假'] ?? 0);
 
         // 4. 動態計算當下最新的「法定應得總時數」(只有今年的份)
-        $entitledAnnual = 0;
+        $newEntitledAnnual = 0;
         if ($hireDate) {
             $entitledDays = calculateAnnualLeaveDaysStrict($hireDate, $currentYear);
-            $entitledAnnual = $entitledDays * 8; // 換算成小時
+            $newEntitledAnnual = $entitledDays * 8; 
         }
 
-        // 5. 結算最新「剩餘特休」
-        // 公式：(歷年保留 + 今年應得) - 今年已請 = 最終剩餘
-        $totalEntitled = $lastYearAnnual + $entitledAnnual;
-        $remainingAnnual = max(0, $totalEntitled - $usedAnnual);
+        // 🔥 5. 存摺補發邏輯：只在「應得額度增加時」(例如跨年資) 才把差額補進存摺
+        if ($newEntitledAnnual > $currentEntitled) {
+            $diff = $newEntitledAnnual - $currentEntitled;
+            $currentAnnualBal += $diff; // 將差額補進現有真實餘額
+            
+            // 補發特休並更新已發放額度
+            $db->prepare("UPDATE users SET entitled_annual_hours = ?, annual_leave_hours = ? WHERE user_id = ?")
+               ->execute([$newEntitledAnnual, $currentAnnualBal, $userId]);
+            
+            $currentEntitled = $newEntitledAnnual;
+        }
 
-        // 🔥 6. 同步更新回資料庫 (把所有狀態寫入 users 表格)
+        $totalEntitled = $lastYearAnnual + $currentEntitled;
+
+        // 🔥 6. 更新其他顯示用數據 (絕對不可再用 total - used 覆蓋 annual_leave_hours！)
         $updateStmt = $db->prepare("
             UPDATE users 
-            SET entitled_annual_hours = ?, 
-                annual_leave_hours = ?,
-                used_annual_hours = ?,
-                used_personal_hours = ?,
-                used_sick_hours = ?
+            SET used_annual_hours = ?, used_personal_hours = ?, used_sick_hours = ?
             WHERE user_id = ?
         ");
-        $updateStmt->execute([
-            $entitledAnnual,   // 今年法定應得
-            $remainingAnnual,  // 最終剩餘特休
-            $usedAnnual,       // 今年已請特休
-            $usedPersonal,     // 今年已請事假
-            $usedSick,         // 今年已請病假
-            $userId
-        ]);
+        $updateStmt->execute([$usedAnnual, $usedPersonal, $usedSick, $userId]);
 
         // 推算補休累積
         $earnedComp = $remainingComp + $usedComp;
@@ -157,9 +157,9 @@ try {
             'data' => $rows,
             'stats' => [
                 'annual' => [
-                    'entitled' => $totalEntitled,   // 顯示在前端的「應得」包含去年保留
+                    'entitled' => $totalEntitled,   
                     'used' => $usedAnnual,          
-                    'remaining' => $remainingAnnual 
+                    'remaining' => $currentAnnualBal // 🔥 修正：改用我們剛撈出來的真實存摺餘額
                 ],
                 'comp' => [
                     'earned' => $earnedComp,       
