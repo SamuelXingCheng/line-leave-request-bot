@@ -68,7 +68,16 @@ foreach ($users as $user) {
             $oneYearDate = clone $hireDate;
             $oneYearDate->modify('+1 year')->modify('-1 day');
             $annivPeriod = $sixMonthDate->format('Y/m/d') . '~' . $oneYearDate->format('Y/m/d');
-            $calResult = calculateCalendarDetails($hireDate, $targetYear);
+            // 2. 曆年制 (統一使用嚴謹版公式，確保邏輯單一)
+            $calendarDays = calculateAnnualLeaveDaysStrict($user['start_date'], $targetYear);
+            $calResult = [
+                'total'   => $calendarDays,
+                'period1' => '-', // 簡化報表，不再錯誤計算工作日
+                'days1'   => '-',
+                'period2' => '-',
+                'days2'   => '-',
+                'debug'   => ''
+            ];
         } else {
             $note = "未滿6個月";
         }
@@ -88,8 +97,16 @@ foreach ($users as $user) {
         $nextAnniv->modify('+1 year')->modify('-1 day');
         $annivPeriod = $annivDateCurrentYear->format('Y/m/d') . '~' . $nextAnniv->format('Y/m/d');
 
-        // 2. 曆年制
-        $calResult = calculateCalendarDetails($hireDate, $targetYear);
+        // 2. 曆年制 (統一使用嚴謹版公式，確保邏輯單一)
+        $calendarDays = calculateAnnualLeaveDaysStrict($user['start_date'], $targetYear);
+        $calResult = [
+            'total'   => $calendarDays,
+            'period1' => '-', // 簡化報表，不再錯誤計算工作日
+            'days1'   => '-',
+            'period2' => '-',
+            'days2'   => '-',
+            'debug'   => ''
+        ];
     }
 
     // 取得已用時數
@@ -124,55 +141,6 @@ exit;
 // ----------------------------------------------------
 // 函式區
 // ----------------------------------------------------
-
-function calculateCalendarDetails(DateTime $hireDate, int $year) {
-    $hireDate->setTime(0, 0, 0);
-    $annivDate = new DateTime("$year-" . $hireDate->format('m-d'));
-    $annivDate->setTime(0, 0, 0);
-
-    // 设置时区为 UTC
-    $hireDate->setTimeZone(new DateTimeZone('UTC'));
-    $annivDate->setTimeZone(new DateTimeZone('UTC'));
-
-    $p1Start = "$year-01-01";
-    $p1EndObj = clone $annivDate;
-    $p1EndObj->modify('-1 day');
-    $p1End = $p1EndObj->format('Y-m-d');
-
-    $p2Start = $annivDate->format('Y-m-d');
-    $p2End   = "$year-12-31";
-
-    // 获取假期列表
-    $holidays = getHolidays($year);
-
-    // 计算天数时考虑假期和工作日
-    $days1 = calculateDaysWithAdjustments($hireDate, $annivDate, $p1Start, $p1End, $holidays);
-    $days2 = calculateDaysWithAdjustments($annivDate, new DateTime("$year-12-31"), $p2Start, $p2End, $holidays);
-    return [
-        'total'   => $days1 + $days2,
-        'period1' => ($days1 == 0) ? '-' : str_replace('-', '/', "$p1Start~$p1End"),
-        'days1'   => $days1,
-        'period2' => str_replace('-', '/', "$p2Start~$p2End"),
-        'days2'   => $days2,
-        'debug'   => " [Debug: YOS=" . ($year - (int)$hireDate->format('Y')) . ", Hire=" . $hireDate->format('Y') . "]" // 除錯資訊
-    ];
-}
-
-function calculateDaysWithAdjustments(DateTime $startDate, DateTime $endDate, string $periodStart, string $periodEnd, array $holidays): int {
-    $days = 0;
-    $currentDate = clone $startDate;
-
-    while ($currentDate <= $endDate) {
-        if ($currentDate->format('Y-m-d') >= $periodStart && $currentDate->format('Y-m-d') <= $periodEnd &&
-            !in_array($currentDate->format('Y-m-d'), $holidays) &&
-            $currentDate->format('N') < 6) { // 周一到周五为工作日
-            $days++;
-        }
-        $currentDate->modify('+1 day');
-    }
-
-    return $days;
-}
 
 function getHolidays(int $year): array {
     global $db;

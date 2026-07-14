@@ -126,9 +126,24 @@ function calculateAnnualLeaveDaysStrict($hireDate, $targetYear) {
     $hireDay = (int)$hire->format('j');
 
     $yearsOfService = $targetYear - $hireYear;
-    if ($yearsOfService < 1) return 0; 
 
-    $prevDays = getLawDays($yearsOfService - 1); 
+    // 處理未滿一年的情況 (檢查今年是否會滿半年)
+    if ($yearsOfService == 0) {
+        $halfYearDate = clone $hire;
+        $halfYearDate->modify('+6 months');
+        if ((int)$halfYearDate->format('Y') == $targetYear) {
+            // 滿半年給3天，依曆年制只給下半年的比例
+            $monthsActive = 12 - (int)$halfYearDate->format('n') + 1;
+            return ceil(round(3 * ($monthsActive / 12), 2) * 10) / 10;
+        }
+        return 0;
+    }
+
+    // 滿一年以上的曆年制切割
+    $prevYears = $yearsOfService - 1;
+    if ($prevYears == 0) $prevYears = 0.5; // 🔥 關鍵修復：滿一年的前一個級距是「半年」
+
+    $prevDays = getLawDays($prevYears);
     $currentDays = getLawDays($yearsOfService);  
 
     $monthsBefore = $hireMonth - 1;
