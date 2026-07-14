@@ -59,9 +59,10 @@ class ModificationApprovalHandler {
             $stmt->execute([$mod['leave_request_id']]);
             $original = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            if (!$original) {
+            // 🔥 新增檢查狀態是否為 approved
+            if (!$original || $original['status'] !== 'approved') {
                 $this->db->rollBack();
-                return "⚠️ 原始假單已找不到。";
+                return "⚠️ 原始假單不存在或狀態不可修改（可能已註銷或仍在審核中）。";
             }
 
             $authStmt = $this->db->prepare("
@@ -321,6 +322,8 @@ class ModificationApprovalHandler {
             $stmtUser->execute([$original['user_id']]);
             $userBalance = $stmtUser->fetch(PDO::FETCH_ASSOC);
             $currentComp = floatval($userBalance['comp_leave_hours']);
+            // 🔥 新增：把目前的特休餘額也抓出來
+            $currentAnnual = floatval($userBalance['annual_leave_hours']); 
             
             $newDeductAnnual = 0;
             $newDeductComp = 0;
@@ -334,6 +337,16 @@ class ModificationApprovalHandler {
                 }
             } else if (strpos($original['leave_type'], '補休') !== false) {
                 $newDeductComp = $newHours;
+            }
+
+            // 🔥 新增：阻擋透支防護！檢查餘額是否足夠支付延長的假期
+            if ($newDeductAnnual > $currentAnnual) {
+                $this->db->rollBack();
+                return "⚠️ 核准失敗：員工特休餘額不足以支付延長的請假時數。";
+            }
+            if ($newDeductComp > $currentComp && strpos($original['leave_type'], '補休') !== false) {
+                $this->db->rollBack();
+                return "⚠️ 核准失敗：員工補休餘額不足以支付延長的請假時數。";
             }
 
             if ($newDeductComp > 0 || $newDeductAnnual > 0) {

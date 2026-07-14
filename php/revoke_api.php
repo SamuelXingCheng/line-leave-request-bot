@@ -293,6 +293,13 @@ try {
 
         if (!$original) throw new BusinessException("找不到原始假單資料");
 
+        // 🔥 新增：檢查是否已有尚未處理的變更單，防止重複送出
+        $checkStmt = $db->prepare("SELECT COUNT(*) FROM leave_modifications WHERE leave_request_id = ? AND status = 'pending'");
+        $checkStmt->execute([$leaveId]);
+        if ($checkStmt->fetchColumn() > 0) {
+            throw new BusinessException("此假單目前已有「審核中」的變更或註銷申請，請等待主管處理完畢。");
+        }
+
         $uuid = generateUuid();
         $ins = $db->prepare("
             INSERT INTO leave_modifications (modification_uuid, leave_request_id, user_id, type, target_date, status, created_at)
