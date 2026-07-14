@@ -172,7 +172,11 @@ $liffId = getenv('MENU_LIFF_ID');
         async function loadLeaves() {
             try {
                 const profile = await liff.getProfile();
-                const res = await fetch(`revoke_api.php?action=list&userId=${profile.userId}`);
+                const res = await fetch(`revoke_api.php?action=list&userId=${profile.userId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${liff.getAccessToken()}`
+                    }
+                });
                 const data = await res.json();
                 
                 const listDiv = document.getElementById('leaveList');
@@ -194,7 +198,7 @@ $liffId = getenv('MENU_LIFF_ID');
                     const buttons = isPending
                         ? `<button onclick="handleDelete('${leaf.request_group_id}')" class="btn btn-outline">撤回申請</button>`
                         : `<button onclick="handleFullRevoke('${leaf.id}')" class="btn btn-danger-outline">註銷假單</button>
-                           <button onclick="openModifyModal('${leaf.id}', '${leaf.start_at}', '${leaf.end_at}')" class="btn btn-primary">變更時段</button>`;
+                        <button onclick="openModifyModal('${leaf.id}', '${leaf.start_at}', '${leaf.end_at}')" class="btn btn-primary">變更時段</button>`;
 
                     listDiv.innerHTML += `
                         <div class="card ${isPending ? 'pending' : 'approved'}">
@@ -245,7 +249,10 @@ $liffId = getenv('MENU_LIFF_ID');
                 const profile = await liff.getProfile();
                 const res = await fetch(`revoke_api.php?action=request_modification`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${liff.getAccessToken()}` 
+                    },
                     body: JSON.stringify({
                         userId: profile.userId,
                         leaveId: leaveId,
@@ -296,7 +303,12 @@ $liffId = getenv('MENU_LIFF_ID');
         async function handleDelete(groupId) {
              if(!confirm("確定要撤回此申請？")) return;
              try {
-                const res = await fetch(`revoke_api.php?action=delete&groupId=${groupId}`);
+                const res = await fetch(`revoke_api.php?action=delete&groupId=${groupId}`, {
+                    headers: {
+                    'Authorization': `Bearer ${liff.getAccessToken()}`
+                    }
+                });
+
                 const result = await res.json();
                 alert(result.message);
                 loadLeaves();
@@ -309,6 +321,10 @@ $liffId = getenv('MENU_LIFF_ID');
                 const profile = await liff.getProfile();
                 const res = await fetch(`revoke_api.php?action=request_modification`, {
                     method: 'POST',
+                    headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${liff.getAccessToken()}` 
+                    },
                     body: JSON.stringify({ 
                         userId: profile.userId, 
                         leaveId: id, 
