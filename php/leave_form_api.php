@@ -19,9 +19,10 @@ try {
     $db = Database::getConnection();
     $userId = $input['userId'];
 
-    // 1. 取得員工姓名 & 目前餘額 (新增：查餘額)
-    // 假設 users 表有 annual_leave_hours (特休) 和 comp_leave_hours (補休) 欄位
-    $stmt = $db->prepare("SELECT name, annual_leave_hours, comp_leave_hours FROM users WHERE user_id = ?");
+    // 🔥 必須先開啟交易，並加上 FOR UPDATE 鎖定使用者資料列，防止併發扣款
+    $db->beginTransaction();
+    // 1. 取得員工姓名 & 目前餘額 (查餘額並上鎖)
+    $stmt = $db->prepare("SELECT name, annual_leave_hours, comp_leave_hours FROM users WHERE user_id = ? FOR UPDATE");
     $stmt->execute([$userId]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
     
@@ -97,7 +98,6 @@ try {
     // ----------------------------------------------------
     // 4. 開啟交易，執行扣款與寫入
     // ----------------------------------------------------
-    $db->beginTransaction();
 
     // (A) 扣除餘額 (UPDATE users)
     if ($deductComp > 0 || $deductAnnual > 0) {
