@@ -117,6 +117,7 @@ if (!$liffId) { die("錯誤：請在 .env 檔案中設定 CALENDAR_LIFF_ID"); }
         .bg-blue { background-color: #3498DB; }   
         .bg-red { background-color: #E74C3C; }    
         .bg-none { background-color: transparent; }
+        .bg-gray { background-color: #9CA3AF; }
 
         .ot-dot {
             width: 5px; height: 5px; border-radius: 50%;
@@ -137,6 +138,8 @@ if (!$liffId) { die("錯誤：請在 .env 檔案中設定 CALENDAR_LIFF_ID"); }
         .l-orange { background-color: #F1C40F; }
         .l-purple { background-color: #9B59B6; width: 6px; height: 6px; }
 
+        .l-gray { background-color: #9CA3AF; }
+
         .details-section { display: none; animation: slideUp 0.2s ease-out; margin-top: 10px;}
         @keyframes slideUp { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
         .details-title { font-size: 0.95rem; font-weight: bold; margin-bottom: 10px; color: var(--text-main); }
@@ -151,6 +154,8 @@ if (!$liffId) { die("錯誤：請在 .env 檔案中設定 CALENDAR_LIFF_ID"); }
         .event-card.orange { border-left-color: #F1C40F; }
         .event-card.blue { border-left-color: #3498DB; }
         .event-card.purple { border-left-color: #9B59B6; }
+
+        .event-card.gray { border-left-color: #9CA3AF; }
 
         .event-info { font-size: 0.9rem; }
         .event-info span { font-size: 0.8rem; color: var(--text-sub); display: block; margin-top: 2px; }
@@ -187,6 +192,7 @@ if (!$liffId) { die("錯誤：請在 .env 檔案中設定 CALENDAR_LIFF_ID"); }
         <div class="legend-item"><div class="legend-icon l-orange"></div>補打卡</div>
         <div class="legend-item"><div class="legend-icon l-red"></div>待審核</div>
         <div class="legend-item"><div class="legend-icon l-purple"></div>加班</div>
+        <div class="legend-item"><div class="legend-icon l-gray"></div>待審核</div>
     </div>
 </div>
 
@@ -295,11 +301,13 @@ if (!$liffId) { die("錯誤：請在 .env 檔案中設定 CALENDAR_LIFF_ID"); }
                 }
                 
                 if (evt.type === 'leave') {
-                    // 🔥 3. 關鍵修改：只有「非休息日」才畫藍點
+                    // 🔥 3. 關鍵修改：只有「非休息日」才畫請假點點
                     if (!isRestDay) {
-                        if (evt.period === 'am') leaveState.up = 'bg-blue';
-                        else if (evt.period === 'pm') leaveState.down = 'bg-blue';
-                        else { leaveState.up = 'bg-blue'; leaveState.down = 'bg-blue'; }
+                        // evt.color 會是 'blue' 或是 'gray'
+                        let colorClass = 'bg-' + evt.color;
+                        if (evt.period === 'am') leaveState.up = colorClass;
+                        else if (evt.period === 'pm') leaveState.down = colorClass;
+                        else { leaveState.up = colorClass; leaveState.down = colorClass; }
                     }
                 }
                 
@@ -360,7 +368,8 @@ if (!$liffId) { die("錯誤：請在 .env 檔案中設定 CALENDAR_LIFF_ID"); }
             const typeMap = { 'attendance': '打卡', 'leave': '請假', 'overtime': '加班' };
             const statusMap = {
                 'green': '正常', 'red': '待審核', 
-                'orange': '補打卡', 'blue': '請假', 'purple': '加班'
+                'orange': '補打卡', 'blue': '請假', 'purple': '加班',
+                'gray': '假單審核中'
             };
 
             displayEvents.forEach(evt => {

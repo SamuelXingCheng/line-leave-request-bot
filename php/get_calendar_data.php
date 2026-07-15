@@ -60,10 +60,10 @@ try {
 
     // 2. 請假紀錄 (Leave) - 修改版：展開連續日期
     $stmt = $db->prepare("
-        SELECT start_at, end_at, leave_type
+        SELECT start_at, end_at, leave_type, status
         FROM leave_requests
-        WHERE user_id = ? AND status = 'approved'
-          AND (start_at <= ? AND end_at >= ?) 
+        WHERE user_id = ? AND status IN ('approved', 'pending')
+            AND (start_at <= ? AND end_at >= ?) 
     ");
     // 注意：SQL 條件改為「只要請假區間跟當月有重疊」就撈出來
     $stmt->execute([$userId, "$endDate 23:59:59", "$startDate 00:00:00"]);
@@ -98,10 +98,15 @@ try {
             if ($sTime < '12:00' && $eTime <= '13:00') $period = 'am';
             elseif ($sTime >= '12:00') $period = 'pm';
 
+            // 🔥 動態判斷狀態給予後綴與顏色
+            $isPending = ($row['status'] === 'pending');
+            $desc = $row['leave_type'] . ($isPending ? ' (待審核)' : '');
+            $color = $isPending ? 'gray' : 'blue';
+
             $events[$dateStr][] = [
                 'type' => 'leave', 
-                'color' => 'blue', 
-                'desc' => $row['leave_type'],
+                'color' => $color, 
+                'desc' => $desc,
                 'period' => $period,
                 'time_info' => "$sTime ~ $eTime" 
             ];
