@@ -49,7 +49,7 @@ $lng     = isset($data['longitude']) ? floatval($data['longitude']) : null;
 $reason  = $data['reason'] ?? null;
 $qrToken = $data['qr_token'] ?? null; 
 
-if (!$userId || !$mode || !$lat || !$lng) {
+if (empty($userId) || empty($mode) || !isset($lat) || !isset($lng)) {
     http_response_code(400);
     echo json_encode(["status" => "error", "message" => "缺少必要參數"]);
     exit;
@@ -177,6 +177,22 @@ if ($is_in_range || $is_qr_valid) {
 
 // --- 寫入資料庫 ---
 try {
+    // 🔥 新增：5分鐘冷卻時間防護 (防連點洗單)
+    $checkSpam = $db->prepare("
+        SELECT COUNT(*) FROM attendance_logs 
+        WHERE user_id = ? AND mode = ? 
+          AND created_at >= DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+    ");
+    $checkSpam->execute([$userId, $dbMode]);
+    if ($checkSpam->fetchColumn() > 0) {
+        echo json_encode([
+            "status" => "error", 
+            "message" => "您已在近期內完成{$displayMode}，請勿頻繁連點。",
+            "messages" => []
+        ]);
+        exit;
+    }
+
     $stmt = $db->prepare("
         INSERT INTO attendance_logs 
         (attendance_uuid, user_id, mode, latitude, longitude, distance, status, reason, approval_status, created_at)
