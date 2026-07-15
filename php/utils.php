@@ -319,31 +319,19 @@ function calculateHours($startStr, $endStr) {
 }
 
 /**
- * 加班時數計算：不排除假日，但仍建議扣除午休 (若加班跨越 12:00-13:00)
- */
-function calculateOvertimeHours($startStr, $endStr) {
-    $start = strtotime($startStr);
-    $end   = strtotime($endStr);
-    if ($end <= $start) return 0;
+         * 加班時數計算：不自動扣除午休或假日，依據申請區間直接計算（由主管最終核准）
+         */
+        function calculateOvertimeHours($startStr, $endStr) {
+            $start = strtotime($startStr);
+            $end   = strtotime($endStr);
+            if ($end <= $start) return 0;
 
-    $totalSeconds = $end - $start;
-    $totalHours = $totalSeconds / 3600;
+            $totalSeconds = $end - $start;
+            $totalHours = $totalSeconds / 3600;
 
-    // 🔥 同樣改為精準計算交集
-    $dateString = date('Y-m-d', $start); // 假設加班不跨日
-    $lunchStartSec = strtotime("$dateString 12:00:00");
-    $lunchEndSec   = strtotime("$dateString 13:00:00");
-    
-    $overlapStart = max($start, $lunchStartSec);
-    $overlapEnd   = min($end, $lunchEndSec);
-    
-    if ($overlapStart < $overlapEnd) {
-        $totalHours -= (($overlapEnd - $overlapStart) / 3600);
-    }
-
-    // 格式化：保留一位小數
-    return max(0, round($totalHours, 1));
-}
+            // 格式化：保留一位小數
+            return max(0, round($totalHours, 1));
+        }
 
 // 定義勞基法「滿N年」的法定特休天數
 function getLawDays($years) {
