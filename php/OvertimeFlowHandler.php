@@ -164,7 +164,14 @@ class OvertimeFlowHandler {
             // 🔥 2. 鎖定使用者資料列，防止併發重疊申請
             $stmt = $this->db->prepare("SELECT name FROM users WHERE user_id = ? FOR UPDATE");
             $stmt->execute([$this->lineId]);
-            $name = $stmt->fetchColumn() ?: "員工";
+            $name = $stmt->fetchColumn();
+
+            if (!$name) {
+                $this->db->rollBack();
+                replyTextMessage($this->event['replyToken'], "⚠️ 系統找不到您的員工資料，請先聯繫管理員完成註冊。");
+                $this->session->clear();
+                return true;
+            }
 
             // 🔥 3. 執行重疊防呆檢查
             $overlapStmt = $this->db->prepare("
@@ -184,11 +191,10 @@ class OvertimeFlowHandler {
             $uuid = generateOvertimeUuid();
 
             $insStmt = $this->db->prepare("
-                INSERT INTO overtime_requests (overtime_uuid, user_id, user_name, start_at, end_at, hours, reason, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+                INSERT INTO overtime_requests (overtime_uuid, user_id, user_name, start_at, end_at, hours, reason, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', NOW())
             ");
             $insStmt->execute([$uuid, $this->lineId, $name, $startAt, $endAt, $otHours, $reason]);
-
             // 🔥 4. 提交交易
             $this->db->commit();
 
