@@ -159,9 +159,9 @@ class RevokeHandler {
             $stmtLock->execute([$leaveId]);
             $original = $stmtLock->fetch(PDO::FETCH_ASSOC);
 
-            if (!$original || $original['status'] !== 'approved') {
+            if (!$original || !in_array($original['status'], ['approved', 'pending'])) {
                 $this->db->rollBack();
-                replyTextMessage($this->replyToken, "⚠️ 只能變更「已核准」的假單，此假單可能已被註銷或正在審核中。");
+                replyTextMessage($this->replyToken, "⚠️ 只能變更「已核准」或「待審核」的假單，此假單可能已被註銷。");
                 return;
             }
 

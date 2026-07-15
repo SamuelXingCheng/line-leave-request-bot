@@ -272,8 +272,8 @@ try {
         $db->beginTransaction();
 
         // 🔥 2. 補上 FOR UPDATE 鎖定原始假單，強迫所有同時進來的請求排隊
-        // ⚠️ 修正：這裡必須加上 user_id，才能知道這張假單是誰的
-        $stmt = $db->prepare("SELECT user_id, user_name, leave_type, start_at, end_at, status FROM leave_requests WHERE id = ? FOR UPDATE");
+        // ⚠️ 修正：這裡必須加上 user_id 與 leave_hours，才能正確計算差額
+        $stmt = $db->prepare("SELECT user_id, user_name, leave_type, start_at, end_at, status, leave_hours FROM leave_requests WHERE id = ? FOR UPDATE");
         $stmt->execute([$leaveId]);
         $original = $stmt->fetch(PDO::FETCH_ASSOC);
 
