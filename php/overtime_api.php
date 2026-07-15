@@ -69,6 +69,18 @@ try {
         throw new Exception("加班時數計算結果為零或負數，請確認時段是否正確。");
     }
 
+    // 🔥 新增：加班時段重疊防呆檢查
+    $overlapStmt = $db->prepare("
+        SELECT COUNT(*) FROM overtime_requests 
+        WHERE user_id = ? 
+          AND status IN ('pending', 'approved')
+          AND start_at < ? AND end_at > ?
+    ");
+    $overlapStmt->execute([$userId, $endAt, $startAt]);
+    if ($overlapStmt->fetchColumn() > 0) {
+        throw new Exception("您申請的時段與現有（或審核中）的加班單重疊，請確認後再送出。");
+    }
+
     // 3. 寫入資料庫
     $uuid = generateOvertimeUuid();
     $stmt = $db->prepare("

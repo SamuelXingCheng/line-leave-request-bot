@@ -255,7 +255,8 @@ try {
             }
             
         } elseif ($type === 'overtime') {
-            $stmt = $db->prepare("SELECT user_id, start_at, status, hours FROM overtime_requests WHERE id = ?");
+            // 🔥 補上 FOR UPDATE 悲觀鎖定，防止與主管端同時簽核引發 Double Payout (重複給假)
+            $stmt = $db->prepare("SELECT user_id, start_at, status, hours FROM overtime_requests WHERE id = ? FOR UPDATE");
             $stmt->execute([$id]);
             $ot = $stmt->fetch(PDO::FETCH_ASSOC);
             

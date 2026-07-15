@@ -154,6 +154,23 @@ class OvertimeFlowHandler {
             return true;
         }
 
+        $startAt = "$date $start:00";
+        $endAt   = "$date $end:00";
+
+        // 🔥 新增：加班時段重疊防呆檢查
+        $overlapStmt = $this->db->prepare("
+            SELECT COUNT(*) FROM overtime_requests 
+            WHERE user_id = ? 
+              AND status IN ('pending', 'approved')
+              AND start_at < ? AND end_at > ?
+        ");
+        $overlapStmt->execute([$this->lineId, $endAt, $startAt]);
+        if ($overlapStmt->fetchColumn() > 0) {
+            replyTextMessage($this->event['replyToken'], "⚠️ 申請失敗：您申請的時段與現有的加班單重疊，請確認後再送出。");
+            $this->session->clear();
+            return true;
+        }
+
         $uuid = generateOvertimeUuid();
 
         $stmt = $this->db->prepare("SELECT name FROM users WHERE user_id = ?");
