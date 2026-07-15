@@ -235,3 +235,4 @@ class CorrectionHandler {
         $stmt->execute([$uuid, $this->lineId, $type, $recordStatus, $reason, $approvalStatus, $datetime]);
         return $uuid;
     }
+}
