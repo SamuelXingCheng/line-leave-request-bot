@@ -294,9 +294,55 @@ try {
             exit;
         }
 
-        // 確保只能對「已核准」的單子做變更
-        if ($original['status'] !== 'approved') {
-            throw new BusinessException("只能變更「已核准」的假單，若尚在審核中，請直接撤回重新申請。");
+        // 確保只能對「已核准」或「待審核」的單子做變更
+        if ($original['status'] !== 'approved' && $original['status'] !== 'pending') {
+            throw new BusinessException("只能變更「已核准」或「待審核」的假單。");
+        }
+
+        // 檢查是否已有尚未處理的變更單，防止重複送出
+        $checkStmt = $db->prepare("SELECT COUNT(*) FROM leave_modifications WHERE leave_request_id = ? AND status = 'pending'");
+        $checkStmt->execute([$leaveId]);
+        if ($checkStmt->fetchColumn() > 0) {
+            throw new BusinessException("此假單目前已有「審核中」的變更或註銷申請，請等待主管處理完畢。");
+        }
+
+        // 🔥 新增：在送出變更單前，提前試算時數並攔截餘額不足
+        if ($modType === 'modify_range') {
+            $parts = explode('~', $targetDate);
+            if (count($parts) === 2) {
+                $newStart = trim($parts[0]);
+                $newEnd = trim($parts[1]);
+                if (strlen($newStart) == 16) $newStart .= ":00";
+                if (strlen($newEnd) == 16) $newEnd .= ":00";
+
+                $newHours = calculateHours($newStart, $newEnd);
+                if ($newHours <= 0) {
+                    throw new BusinessException("變更後的時數無效，請確認時段。");
+                }
+
+                $originalHours = floatval($original['leave_hours'] ?? 0);
+                $extraHours = $newHours - $originalHours;
+
+                if ($extraHours > 0) {
+                    $stmtUser = $db->prepare("SELECT annual_leave_hours, comp_leave_hours FROM users WHERE user_id = ?");
+                    $stmtUser->execute([$userId]);
+                    $userBal = $stmtUser->fetch(PDO::FETCH_ASSOC);
+
+                    $currentAnnual = floatval($userBal['annual_leave_hours']);
+                    $currentComp   = floatval($userBal['comp_leave_hours']);
+                    $floatGt = function($a, $b) { return ($a - $b) > 0.001; };
+
+                    if (strpos($original['leave_type'], '特休') !== false) {
+                        if ($floatGt($extraHours, $currentComp + $currentAnnual)) {
+                            throw new BusinessException("特休/補休餘額不足！延長假期需額外扣除 {$extraHours} 小時。");
+                        }
+                    } elseif (strpos($original['leave_type'], '補休') !== false) {
+                        if ($floatGt($extraHours, $currentComp)) {
+                            throw new BusinessException("補休餘額不足！延長假期需額外扣除 {$extraHours} 小時。");
+                        }
+                    }
+                }
+            }
         }
 
         // 檢查是否已有尚未處理的變更單，防止重複送出

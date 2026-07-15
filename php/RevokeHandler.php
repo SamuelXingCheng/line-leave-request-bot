@@ -52,7 +52,7 @@ class RevokeHandler {
         $stmt = $this->db->prepare("
             SELECT * FROM leave_requests 
             WHERE user_id = ? 
-              AND status = 'approved' 
+              AND status IN ('approved', 'pending') 
               AND end_at > DATE_SUB(NOW(), INTERVAL 30 DAY) 
             ORDER BY start_at DESC 
         ");

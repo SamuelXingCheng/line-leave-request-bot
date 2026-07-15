@@ -65,10 +65,10 @@ class ModificationApprovalHandler {
             $stmt->execute([$mod['leave_request_id']]);
             $original = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            // 🔥 新增檢查狀態是否為 approved
-            if (!$original || $original['status'] !== 'approved') {
+            // 🔥 檢查狀態是否為 approved 或 pending
+            if (!$original || !in_array($original['status'], ['approved', 'pending'])) {
                 $this->db->rollBack();
-                return "⚠️ 原始假單不存在或狀態不可修改（可能已註銷或仍在審核中）。";
+                return "⚠️ 原始假單不存在或狀態不可修改（可能已註銷）。";
             }
 
             // 🔥 新增：老闆特權判斷
@@ -215,9 +215,11 @@ class ModificationApprovalHandler {
                             ->execute([$part1DeductAnnual, $part1DeductComp, $original['user_id']]);
                     }
 
-                    $this->db->prepare("UPDATE leave_requests SET start_at = ?, end_at = ?, leave_hours = ?, deduct_annual = ?, deduct_comp = ?, reason = CONCAT(reason, ' (拆單-保留段)') WHERE id = ?")
+                    $this->db->prepare("UPDATE leave_requests SET start_at = ?, end_at = ?, leave_hours = ?, deduct_annual = ?, deduct_comp = ?, reason = CONCAT(reason, ' (拆單-保留段)'), status = 'approved' WHERE id = ?")
                         ->execute([$part1Start, $part1End, $part1Hours, $part1DeductAnnual, $part1DeductComp, $original['id']]);
 
+                    // 🔥 同時更新 leave_approvals (強制通過原假單)
+                    $this->db->prepare("UPDATE leave_approvals SET status = 'approved', updated_at = NOW() WHERE request_id = ?")->execute([$original['id']]);
                     $part2GroupId = $this->generateUuid();
 
                     $this->db->prepare("
@@ -372,9 +374,11 @@ class ModificationApprovalHandler {
                 $reDeduct->execute([$newDeductAnnual, $newDeductComp, $original['user_id']]);
             }
 
-            $update = $this->db->prepare("UPDATE leave_requests SET start_at = ?, end_at = ?, leave_hours = ?, deduct_annual = ?, deduct_comp = ? WHERE id = ?");
+            $update = $this->db->prepare("UPDATE leave_requests SET start_at = ?, end_at = ?, leave_hours = ?, deduct_annual = ?, deduct_comp = ?, status = 'approved' WHERE id = ?");
             $update->execute([$newStart, $newEnd, $newHours, $newDeductAnnual, $newDeductComp, $original['id']]);
-
+            
+            // 🔥 同時更新 leave_approvals (強制通過原假單)
+            $this->db->prepare("UPDATE leave_approvals SET status = 'approved', updated_at = NOW() WHERE request_id = ?")->execute([$original['id']]);
             $this->db->prepare("UPDATE leave_modifications SET status = 'approved' WHERE id = ?")->execute([$mod['id']]);
             
             $this->db->commit();

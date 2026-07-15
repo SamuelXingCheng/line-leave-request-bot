@@ -196,10 +196,10 @@ $liffId = getenv('MENU_LIFF_ID');
                     const statusTag = isPending ? `<span class="status-tag tag-pending">審核中</span>` : `<span class="status-tag tag-approved">已核准</span>`;
 
                     const buttons = isPending
-                        ? `<button onclick="handleDelete('${leaf.request_group_id}')" class="btn btn-outline">撤回申請</button>`
+                        ? `<button onclick="handleDelete('${leaf.request_group_id}')" class="btn btn-outline">撤回申請</button>
+                           <button onclick="openModifyModal('${leaf.id}', '${leaf.start_at}', '${leaf.end_at}')" class="btn btn-primary">變更時段</button>`
                         : `<button onclick="handleFullRevoke('${leaf.id}')" class="btn btn-danger-outline">註銷假單</button>
-                        <button onclick="openModifyModal('${leaf.id}', '${leaf.start_at}', '${leaf.end_at}')" class="btn btn-primary">變更時段</button>`;
-
+                           <button onclick="openModifyModal('${leaf.id}', '${leaf.start_at}', '${leaf.end_at}')" class="btn btn-primary">變更時段</button>`;
                     listDiv.innerHTML += `
                         <div class="card ${isPending ? 'pending' : 'approved'}">
                             <div class="card-header">
