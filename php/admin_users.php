@@ -246,10 +246,17 @@ if (empty($_SESSION['admin_logged_in'])) {
         }
 
         function getActionButtons(type, id, currentStatus) {
+            let buttons = '';
             if (currentStatus === 'pending') {
-                return `<button class="btn btn-add" style="padding:4px 8px; font-size:0.75rem; margin-right:4px;" onclick="forceAudit('${type}', ${id}, 'approved')">核准</button><button class="btn btn-delete" style="padding:4px 8px; font-size:0.75rem;" onclick="forceAudit('${type}', ${id}, 'rejected')">退件</button>`;
+                buttons += `<button class="btn btn-add" style="padding:4px 8px; font-size:0.75rem; margin-right:4px;" onclick="forceAudit('${type}', ${id}, 'approved')">核准</button>`;
+                buttons += `<button class="btn btn-delete" style="padding:4px 8px; font-size:0.75rem;" onclick="forceAudit('${type}', ${id}, 'rejected')">退件</button>`;
+            } else if (currentStatus === 'approved') {
+                // 🔥 開放：已核准的單據，管理員依然可以強制退件 (後端 API 會自動處理時數回收)
+                buttons += `<button class="btn btn-delete" style="padding:4px 8px; font-size:0.75rem;" onclick="forceAudit('${type}', ${id}, 'rejected')">強制退件</button>`;
+            } else {
+                buttons = '<span style="color:#D1D5DB; font-size:0.8rem;">無</span>';
             }
-            return '<span style="color:#D1D5DB; font-size:0.8rem;">無</span>';
+            return buttons;
         }
 
         async function forceAudit(type, id, newStatus) {
