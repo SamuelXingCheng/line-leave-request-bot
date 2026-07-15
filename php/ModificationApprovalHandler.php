@@ -153,8 +153,9 @@ class ModificationApprovalHandler {
                 $returnDate = $mod['target_date'];
 
                 $part1Start = $original['start_at'];
-                $part1End   = date('Y-m-d', strtotime($returnDate . ' -1 day')) . ' 17:30:00';
-
+                // 如果原本假單的結束時間在當天更早，就不能硬寫 17:30
+                $calculatedEnd = date('Y-m-d', strtotime($returnDate . ' -1 day')) . ' 17:30:00';
+                $part1End = (strtotime($calculatedEnd) > strtotime($original['end_at'])) ? $original['end_at'] : $calculatedEnd;
                 $part2Start = $returnDate . ' 08:30:00';
                 $part2End   = $original['end_at'];
 
@@ -354,11 +355,14 @@ class ModificationApprovalHandler {
             }
 
             // 🔥 新增：阻擋透支防護！檢查餘額是否足夠支付延長的假期
-            if ($newDeductAnnual > $currentAnnual) {
+            $floatGt = function($a, $b) { return ($a - $b) > 0.001; };
+
+            // 🔥 新增：阻擋透支防護！檢查餘額是否足夠支付延長的假期
+            if ($floatGt($newDeductAnnual, $currentAnnual)) {
                 $this->db->rollBack();
                 return "⚠️ 核准失敗：員工特休餘額不足以支付延長的請假時數。";
             }
-            if ($newDeductComp > $currentComp && strpos($original['leave_type'], '補休') !== false) {
+            if ($floatGt($newDeductComp, $currentComp) && strpos($original['leave_type'], '補休') !== false) {
                 $this->db->rollBack();
                 return "⚠️ 核准失敗：員工補休餘額不足以支付延長的請假時數。";
             }

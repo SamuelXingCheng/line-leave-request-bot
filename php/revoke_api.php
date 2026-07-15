@@ -355,12 +355,17 @@ try {
             $detailText = "變更內容：" . $targetDate;
         }
 
+        $userName = $original['user_name'] ?? '員工';
+        $leaveType = $original['leave_type'] ?? '未指定';
+        $startStr = isset($original['start_at']) ? substr($original['start_at'], 0, 16) : '';
+        $endStr = isset($original['end_at']) ? substr($original['end_at'], 0, 16) : '';
+
         $msgText = 
             "【系統通知】假單變更申請\n" .
             "────────────────\n" .
-            "申請人員：" . $original['user_name'] . "\n" .
-            "原始假別：" . $original['leave_type'] . "\n" .
-            "原定期間：" . $original['start_at'] . " ~ " . $original['end_at'] . "\n" .
+            "申請人員：" . $userName . "\n" .
+            "原始假別：" . $leaveType . "\n" .
+            "原定期間：" . $startStr . " ~ " . $endStr . "\n" .
             "────────────────\n" .
             "變更項目：" . $typeText . "\n" .
             $detailText . "\n" .
