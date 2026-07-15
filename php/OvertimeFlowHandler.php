@@ -157,34 +157,43 @@ class OvertimeFlowHandler {
         $startAt = "$date $start:00";
         $endAt   = "$date $end:00";
 
-        // 🔥 新增：加班時段重疊防呆檢查
-        $overlapStmt = $this->db->prepare("
-            SELECT COUNT(*) FROM overtime_requests 
-            WHERE user_id = ? 
-              AND status IN ('pending', 'approved')
-              AND start_at < ? AND end_at > ?
-        ");
-        $overlapStmt->execute([$this->lineId, $endAt, $startAt]);
-        if ($overlapStmt->fetchColumn() > 0) {
-            replyTextMessage($this->event['replyToken'], "⚠️ 申請失敗：您申請的時段與現有的加班單重疊，請確認後再送出。");
-            $this->session->clear();
-            return true;
-        }
-
-        $uuid = generateOvertimeUuid();
-
-        $stmt = $this->db->prepare("SELECT name FROM users WHERE user_id = ?");
-        $stmt->execute([$this->lineId]);
-        $name = $stmt->fetchColumn() ?: "員工";
-
-        $stmt = $this->db->prepare("
-            INSERT INTO overtime_requests (overtime_uuid, user_id, user_name, start_at, end_at, hours, reason, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
-        ");
-
         try {
-            $stmt->execute([$uuid, $this->lineId, $name, "$date $start", "$date $end", $otHours, $reason]);
+            // 🔥 1. 開啟交易防護
+            $this->db->beginTransaction();
+
+            // 🔥 2. 鎖定使用者資料列，防止併發重疊申請
+            $stmt = $this->db->prepare("SELECT name FROM users WHERE user_id = ? FOR UPDATE");
+            $stmt->execute([$this->lineId]);
+            $name = $stmt->fetchColumn() ?: "員工";
+
+            // 🔥 3. 執行重疊防呆檢查
+            $overlapStmt = $this->db->prepare("
+                SELECT COUNT(*) FROM overtime_requests
+                WHERE user_id = ?
+                  AND status IN ('pending', 'approved')
+                  AND start_at < ? AND end_at > ?
+            ");
+            $overlapStmt->execute([$this->lineId, $endAt, $startAt]);
+            if ($overlapStmt->fetchColumn() > 0) {
+                $this->db->rollBack();
+                replyTextMessage($this->event['replyToken'], "⚠️ 申請失敗：您申請的時段與現有的加班單重疊，請確認後再送出。");
+                $this->session->clear();
+                return true;
+            }
+
+            $uuid = generateOvertimeUuid();
+
+            $insStmt = $this->db->prepare("
+                INSERT INTO overtime_requests (overtime_uuid, user_id, user_name, start_at, end_at, hours, reason, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+            ");
+            $insStmt->execute([$uuid, $this->lineId, $name, $startAt, $endAt, $otHours, $reason]);
+
+            // 🔥 4. 提交交易
+            $this->db->commit();
+
         } catch (Exception $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
             error_log("OvertimeFlowHandler INSERT error: " . $e->getMessage());
             replyTextMessage($this->event['replyToken'], "申請寫入失敗，請稍後再試。");
             $this->session->clear();
