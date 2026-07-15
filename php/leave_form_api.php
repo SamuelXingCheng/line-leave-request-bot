@@ -25,10 +25,14 @@ try {
     $stmt = $db->prepare("SELECT name, annual_leave_hours, comp_leave_hours FROM users WHERE user_id = ? FOR UPDATE");
     $stmt->execute([$userId]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$user) {
+        throw new Exception("系統找不到您的員工資料，請先聯繫管理員完成註冊。");
+    }
     
-    $userName = $user['name'] ?? "員工";
-    $currentComp = floatval($user['comp_leave_hours'] ?? 0);
-    $currentAnnual = floatval($user['annual_leave_hours'] ?? 0);
+    $userName = $user['name'];
+    $currentComp = floatval($user['comp_leave_hours']);
+    $currentAnnual = floatval($user['annual_leave_hours']);
 
     // 2. 查詢直屬主管
     $stmtSup = $db->prepare("SELECT supervisor_id FROM user_supervisors WHERE user_id = ?");
@@ -95,13 +99,13 @@ try {
         }
 
         // 檢查特休餘額是否足夠
-        if ($deductAnnual > $currentAnnual) {
-            throw new Exception("特休餘額不足！剩餘 {$currentAnnual} 小時，需扣 {$deductAnnual} 小時。");
+        if ($floatGt($deductAnnual, $currentAnnual)) {
+        throw new Exception("特休餘額不足！剩餘 {$currentAnnual} 小時，需扣 {$deductAnnual} 小時。");
         }
     } else if ($leaveType === '補休假') {
         $deductComp = $leaveHours;
-        if ($deductComp > $currentComp) {
-            throw new Exception("補休餘額不足！剩餘 {$currentComp} 小時。");
+        if ($floatGt($deductComp, $currentComp)) {
+        throw new Exception("補休餘額不足！剩餘 {$currentComp} 小時。");
         }
     }
 

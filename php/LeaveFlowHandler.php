@@ -12,7 +12,7 @@ class LeaveFlowHandler {
     public function __construct($lineId, $event, $db) {
         $this->lineId = $lineId;
         $this->event = $event;
-        $this->session = new UserSession($lineId, $db);
+        $this->session = new UserSession($lineId);
         $this->db = $db;
     }
 
