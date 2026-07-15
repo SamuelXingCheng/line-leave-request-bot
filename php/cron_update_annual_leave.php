@@ -203,40 +203,37 @@ try {
     $db->beginTransaction();
     $successCount = 0;
 
+    // 【請將 foreach 迴圈內部替換為以下代碼】
     foreach ($users as $user) {
         $userId = $user['user_id'];
         $hireDate = $user['start_date'];
         $lastYearAnnual = floatval($user['last_year_annual_hours'] ?? 0);
         
-        // 1. 撈取該員工今年各假別已請時數
+        // 🔥 1. 精準撈取扣抵時數 (加入 pending 與 deduct_annual)
         $stmtStat = $db->prepare(" 
-            SELECT leave_type, SUM(leave_hours) as total_used 
+            SELECT 
+                SUM(deduct_annual) as used_annual,
+                SUM(CASE WHEN leave_type LIKE '%事假%' THEN leave_hours ELSE 0 END) as used_personal,
+                SUM(CASE WHEN leave_type LIKE '%病假%' THEN leave_hours ELSE 0 END) as used_sick
             FROM leave_requests 
-            WHERE user_id = ? AND status = 'approved' AND start_at LIKE ? 
-            GROUP BY leave_type
+            WHERE user_id = ? AND status IN ('approved', 'pending') AND start_at LIKE ? 
         ");
         $stmtStat->execute([$userId, "$currentYear%"]);
-        $usedStats = $stmtStat->fetchAll(PDO::FETCH_KEY_PAIR);
+        $usedStats = $stmtStat->fetch(PDO::FETCH_ASSOC);
 
-        $usedAnnual   = floatval($usedStats['特休假'] ?? $usedStats['特休'] ?? 0);
-        $usedPersonal = floatval($usedStats['事假'] ?? 0);
-        $usedSick     = floatval($usedStats['病假'] ?? 0);
-
-        $currentEntitled = floatval($user['entitled_annual_hours'] ?? 0);
-        $currentAnnualBal = floatval($user['annual_leave_hours'] ?? 0);
+        $usedAnnual   = floatval($usedStats['used_annual'] ?? 0);
+        $usedPersonal = floatval($usedStats['used_personal'] ?? 0);
+        $usedSick     = floatval($usedStats['used_sick'] ?? 0);
 
         // 2. 計算今年法定特休
         $entitledDays = calculateAnnualLeaveDaysStrict($hireDate, $currentYear);
-        $newEntitledAnnual = $entitledDays * 8; 
+        $entitledAnnual = $entitledDays * 8; 
 
-        // 🔥 3. 存摺補發邏輯 (與 query_api 保持一致，嚴禁覆蓋)
-        if ($newEntitledAnnual > $currentEntitled) {
-            $diff = $newEntitledAnnual - $currentEntitled;
-            $currentAnnualBal += $diff;
-            $currentEntitled = $newEntitledAnnual;
-        }
+        // 🔥 3. 結算特休剩餘 (歷年保留 + 今年法定 - 已請含待審核)
+        $totalEntitled = $lastYearAnnual + $entitledAnnual;
+        $remainingAnnual = max(0, $totalEntitled - $usedAnnual);
 
-        // 4. 寫入資料庫的新欄位 (代入更新後的存摺餘額)
+        // 4. 寫入資料庫
         $updateStmt = $db->prepare(" 
             UPDATE users 
             SET entitled_annual_hours = ?, 
@@ -247,12 +244,12 @@ try {
             WHERE user_id = ?
         ");
         $updateStmt->execute([
-            $currentEntitled, $currentAnnualBal, 
+            $entitledAnnual, $remainingAnnual, 
             $usedAnnual, $usedPersonal, $usedSick, 
             $userId
         ]);
 
-        echo "<li>✅ 員工: <strong>{$user['name']}</strong> | 應得: {$currentEntitled}h | 已休: {$usedAnnual}h | 剩餘特休: <strong>{$currentAnnualBal}</strong>h | 事假: {$usedPersonal}h | 病假: {$usedSick}h</li>";
+        echo "<li>✅ 員工: <strong>{$user['name']}</strong> | 應得: {$entitledAnnual}h | 已休: {$usedAnnual}h | 剩餘特休: <strong>{$remainingAnnual}</strong>h | 事假: {$usedPersonal}h | 病假: {$usedSick}h</li>";
         $successCount++;
     }
 
