@@ -154,6 +154,26 @@ class RevokeHandler {
         try {
             $this->db->beginTransaction();
 
+            // 🔥 1. 鎖定原始假單並檢查狀態
+            $stmtLock = $this->db->prepare("SELECT status FROM leave_requests WHERE id = ? FOR UPDATE");
+            $stmtLock->execute([$leaveId]);
+            $original = $stmtLock->fetch(PDO::FETCH_ASSOC);
+
+            if (!$original || $original['status'] !== 'approved') {
+                $this->db->rollBack();
+                replyTextMessage($this->replyToken, "⚠️ 只能變更「已核准」的假單，此假單可能已被註銷或正在審核中。");
+                return;
+            }
+
+            // 🔥 2. 檢查重複的變更單
+            $checkStmt = $this->db->prepare("SELECT COUNT(*) FROM leave_modifications WHERE leave_request_id = ? AND status = 'pending'");
+            $checkStmt->execute([$leaveId]);
+            if ($checkStmt->fetchColumn() > 0) {
+                $this->db->rollBack();
+                replyTextMessage($this->replyToken, "⚠️ 此假單已有「審核中」的變更申請，請勿重複送出。");
+                return;
+            }
+
             // 3. 生成安全 UUID
             $uuid = $this->generateUuid();
 

@@ -269,15 +269,22 @@ try {
             exit;
         }
 
-        $stmtOwner = $db->prepare("SELECT user_id FROM leave_requests WHERE id = ? LIMIT 1");
-        $stmtOwner->execute([$leaveId]);
-        $ownerUserId = $stmtOwner->fetchColumn();
+        $db->beginTransaction();
 
-        if ($ownerUserId === false) {
+        // 🔥 2. 補上 FOR UPDATE 鎖定原始假單，強迫所有同時進來的請求排隊
+        // ⚠️ 修正：這裡必須加上 user_id，才能知道這張假單是誰的
+        $stmt = $db->prepare("SELECT user_id, user_name, leave_type, start_at, end_at, status FROM leave_requests WHERE id = ? FOR UPDATE");
+        $stmt->execute([$leaveId]);
+        $original = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$original) {
+            // (BusinessException 會自動觸發底下的 catch 做 rollback)
             throw new BusinessException("找不到原始假單資料");
         }
 
-        if ($ownerUserId !== $verifiedUserId) {
+        // 🚨 救回這個超級重要的權限檢查！防止別人亂改假單
+        if ($original['user_id'] !== $verifiedUserId) {
+            $db->rollBack();
             http_response_code(403);
             echo json_encode([
                 'status' => 'error',
@@ -287,18 +294,12 @@ try {
             exit;
         }
 
-        // 🔥 補上 status 欄位的撈取
-        $stmt = $db->prepare("SELECT user_name, leave_type, start_at, end_at, status FROM leave_requests WHERE id = ?");
-        $stmt->execute([$leaveId]);
-        $original = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        if (!$original) throw new BusinessException("找不到原始假單資料");
-        // 🔥 新增：確保只能對「已核准」的單子做變更
+        // 確保只能對「已核准」的單子做變更
         if ($original['status'] !== 'approved') {
             throw new BusinessException("只能變更「已核准」的假單，若尚在審核中，請直接撤回重新申請。");
         }
-        
-        // 🔥 新增：檢查是否已有尚未處理的變更單，防止重複送出
+
+        // 檢查是否已有尚未處理的變更單，防止重複送出
         $checkStmt = $db->prepare("SELECT COUNT(*) FROM leave_modifications WHERE leave_request_id = ? AND status = 'pending'");
         $checkStmt->execute([$leaveId]);
         if ($checkStmt->fetchColumn() > 0) {
@@ -311,6 +312,9 @@ try {
             VALUES (?, ?, ?, ?, ?, 'pending', NOW())
         ");
         $ins->execute([$uuid, $leaveId, $userId, $modType, $targetDate]);
+
+        // 🔥 3. 確定沒問題，提交交易！
+        $db->commit();
 
         $supNames = [];
         try {
