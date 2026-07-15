@@ -51,7 +51,7 @@ try {
             $overtimes = $stmtOt->fetchAll(PDO::FETCH_ASSOC);
 
             // D. 待審核 - 打卡異常
-            $sqlCk = "SELECT a.id, u.name AS user_name, a.created_at AS clock_time, a.reason, a.created_at FROM attendance_logs a JOIN users u ON a.user_id = u.user_id WHERE a.approval_status = 'pending' AND a.status = 'fail' AND a.user_id IN ($placeholders) ORDER BY a.created_at ASC";
+            $sqlCk = "SELECT a.id, u.name AS user_name, a.created_at AS clock_time, a.reason, a.created_at FROM attendance_logs a JOIN users u ON a.user_id = u.user_id WHERE a.approval_status = 'pending' AND a.status IN ('fail', 'pending') AND a.user_id IN ($placeholders) ORDER BY a.created_at ASC";
             $stmtCk = $db->prepare($sqlCk);
             $stmtCk->execute($subLineIds);
             $clockins = $stmtCk->fetchAll(PDO::FETCH_ASSOC);
@@ -120,7 +120,7 @@ try {
                     } elseif ($item['type'] === 'clockin') {
                         $ckReq = $db->prepare("SELECT user_id, created_at FROM attendance_logs WHERE id = ?"); $ckReq->execute([$id]); $ck = $ckReq->fetch();
                         if ($ck) {
-                            $db->prepare("UPDATE attendance_logs SET approval_status = 'approved' WHERE id = ?")->execute([$id]);
+                            $db->prepare("UPDATE attendance_logs SET approval_status = 'approved', status = 'success', approved_at = NOW() WHERE id = ?")->execute([$id]);
                             // (依據之前的建議，此處推播可保留或刪除)
                         }
                     }
