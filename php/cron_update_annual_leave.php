@@ -148,8 +148,8 @@ function calculateAnnualLeaveDaysStrict($hireDate, $targetYear) {
 
     $monthsBefore = $hireMonth - 1;
     $daysBefore = $hireDay - 1;
-    $daysInAnniversaryMonth = (int)date('t', strtotime("$targetYear-$hireMonth-01"));
-    
+    $daysInAnniversaryMonth = (int)date('t', strtotime("$hireYear-$hireMonth-01"));
+
     $ratioBefore = ($monthsBefore + ($daysBefore / $daysInAnniversaryMonth)) / 12;
 
     $part1 = $ratioBefore * $prevDays;
@@ -194,7 +194,7 @@ try {
     $currentYear = (int)date('Y');
     
     // 撈取全體員工
-    $stmt = $db->query("SELECT user_id, name, start_date, last_year_annual_hours FROM users WHERE start_date IS NOT NULL");
+    $stmt = $db->query("SELECT user_id, name, start_date, last_year_annual_hours, entitled_annual_hours, annual_leave_hours FROM users WHERE start_date IS NOT NULL");
     $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     echo "<h2>--- 開始執行全體資料校正 (自動填寫新欄位) ---</h2>";
@@ -222,15 +222,21 @@ try {
         $usedPersonal = floatval($usedStats['事假'] ?? 0);
         $usedSick     = floatval($usedStats['病假'] ?? 0);
 
+        $currentEntitled = floatval($user['entitled_annual_hours'] ?? 0);
+        $currentAnnualBal = floatval($user['annual_leave_hours'] ?? 0);
+
         // 2. 計算今年法定特休
         $entitledDays = calculateAnnualLeaveDaysStrict($hireDate, $currentYear);
-        $entitledAnnual = $entitledDays * 8; 
+        $newEntitledAnnual = $entitledDays * 8; 
 
-        // 3. 結算特休剩餘 (歷年保留 + 今年法定 - 今年已請)
-        $totalEntitled = $lastYearAnnual + $entitledAnnual;
-        $remainingAnnual = max(0, $totalEntitled - $usedAnnual);
+        // 🔥 3. 存摺補發邏輯 (與 query_api 保持一致，嚴禁覆蓋)
+        if ($newEntitledAnnual > $currentEntitled) {
+            $diff = $newEntitledAnnual - $currentEntitled;
+            $currentAnnualBal += $diff;
+            $currentEntitled = $newEntitledAnnual;
+        }
 
-        // 4. 寫入資料庫的新欄位
+        // 4. 寫入資料庫的新欄位 (代入更新後的存摺餘額)
         $updateStmt = $db->prepare(" 
             UPDATE users 
             SET entitled_annual_hours = ?, 
@@ -241,12 +247,12 @@ try {
             WHERE user_id = ?
         ");
         $updateStmt->execute([
-            $entitledAnnual, $remainingAnnual, 
+            $currentEntitled, $currentAnnualBal, 
             $usedAnnual, $usedPersonal, $usedSick, 
             $userId
         ]);
 
-        echo "<li>✅ 員工: <strong>{$user['name']}</strong> | 應得: {$entitledAnnual}h | 已休: {$usedAnnual}h | 剩餘特休: <strong>{$remainingAnnual}</strong>h | 事假: {$usedPersonal}h | 病假: {$usedSick}h</li>";
+        echo "<li>✅ 員工: <strong>{$user['name']}</strong> | 應得: {$currentEntitled}h | 已休: {$usedAnnual}h | 剩餘特休: <strong>{$currentAnnualBal}</strong>h | 事假: {$usedPersonal}h | 病假: {$usedSick}h</li>";
         $successCount++;
     }
 

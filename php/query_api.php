@@ -55,7 +55,7 @@ if (!function_exists('calculateAnnualLeaveDaysStrict')) {
 
         $monthsBefore = $hireMonth - 1;
         $daysBefore = $hireDay - 1;
-        $daysInAnniversaryMonth = (int)date('t', strtotime("$targetYear-$hireMonth-01"));
+        $daysInAnniversaryMonth = (int)date('t', strtotime("$hireYear-$hireMonth-01"));
         
         $ratioBefore = ($monthsBefore + ($daysBefore / $daysInAnniversaryMonth)) / 12;
 

@@ -89,10 +89,12 @@ foreach ($users as $user) {
         $tenure = $hireDate->diff($calcDate);
         $tenureStr = "{$tenure->y}年{$tenure->m}個月";
 
-        // 1. 週年制
+        // 1. 週年制 (🔥 修正：直接呼叫 getLawDays，並移除錯誤的 DateTime 傳參)
+        $yearsOfService = $targetYear - (int)$hireDate->format('Y');
+        $annivEntitledDays = getLawDays($yearsOfService);
+        
         $annivDateCurrentYear = new DateTime("$targetYear-" . $hireDate->format('m-d'));
-        $annivEntitledDays = calculateAnnualLeaveDays($user['start_date'], $annivDateCurrentYear);
-
+        
         $nextAnniv = clone $annivDateCurrentYear;
         $nextAnniv->modify('+1 year')->modify('-1 day');
         $annivPeriod = $annivDateCurrentYear->format('Y/m/d') . '~' . $nextAnniv->format('Y/m/d');
