@@ -47,7 +47,7 @@ try {
         $stmtUsed = $db->prepare("
             SELECT SUM(deduct_annual) as used_annual, SUM(deduct_comp) as used_comp 
             FROM leave_requests 
-            WHERE user_id = ? AND status = 'approved'
+            WHERE user_id = ? AND status IN ('approved', 'pending')
         ");
         $stmtUsed->execute([$userId]);
         $used = $stmtUsed->fetch(PDO::FETCH_ASSOC);

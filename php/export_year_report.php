@@ -69,7 +69,7 @@ foreach ($users as $user) {
             $oneYearDate->modify('+1 year')->modify('-1 day');
             $annivPeriod = $sixMonthDate->format('Y/m/d') . '~' . $oneYearDate->format('Y/m/d');
             // 2. 曆年制 (統一使用嚴謹版公式，確保邏輯單一)
-            $calendarDays = calculateAnnualLeaveDaysStrict($user['start_date'], $targetYear);
+            $calendarDays = calculateAnnualLeaveDays($user['start_date'], $targetYear);
             $calResult = [
                 'total'   => $calendarDays,
                 'period1' => '-', // 簡化報表，不再錯誤計算工作日
@@ -94,13 +94,13 @@ foreach ($users as $user) {
         $annivEntitledDays = getLawDays($yearsOfService);
         
         $annivDateCurrentYear = new DateTime("$targetYear-" . $hireDate->format('m-d'));
-        
+
         $nextAnniv = clone $annivDateCurrentYear;
         $nextAnniv->modify('+1 year')->modify('-1 day');
         $annivPeriod = $annivDateCurrentYear->format('Y/m/d') . '~' . $nextAnniv->format('Y/m/d');
 
         // 2. 曆年制 (統一使用嚴謹版公式，確保邏輯單一)
-        $calendarDays = calculateAnnualLeaveDaysStrict($user['start_date'], $targetYear);
+        $calendarDays = calculateAnnualLeaveDays($user['start_date'], $targetYear);
         $calResult = [
             'total'   => $calendarDays,
             'period1' => '-', // 簡化報表，不再錯誤計算工作日
