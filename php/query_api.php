@@ -76,10 +76,6 @@ try {
         $userId = $_GET['userId'] ?? '';
         if (empty($userId)) throw new Exception("缺少 userId");
 
-        // Move here: Ensure permissions are checked after $userId is retrieved
-        if (!function_exists('hasPermission') || !hasPermission($userId)) {
-            throw new Exception("使用者沒有權限");
-        }
 
         // 1. 查詢使用者資料
         $stmtUser = $db->prepare("SELECT start_date, comp_leave_hours, last_year_annual_hours FROM users WHERE user_id = ?");
@@ -143,20 +139,25 @@ try {
 
         // 8. 回傳完整資料包給前端
         echo json_encode([
-            'status' => 'success',
-            'data' => $rows,
-            'stats' => [
-                'annual' => [
-                    'entitled' => $totalEntitled,   
-                    'used' => $usedAnnual,          
-                    'remaining' => $currentAnnualBal // 🔥 修正：改用我們剛撈出來的真實存摺餘額
+            "status" => "success",
+            "data" => $rows, // 前端 allLeaves = json.data
+            "stats" => [     // 前端 statsData = json.stats
+                "annual" => [
+                    "entitled"  => $entitledAnnual,
+                    "used"      => $usedAnnual,
+                    "remaining" => $remainingAnnual
                 ],
-                'comp' => [
-                    'earned' => $earnedComp,       
-                    'used' => $usedComp,           
-                    'remaining' => $remainingComp   
+                "comp" => [
+                    "earned"    => $earnedComp, // 補休累積 (含已休+未休)
+                    "used"      => $usedComp,
+                    "remaining" => $remainingComp
                 ],
-                'others' => $usedStats
+                // 前端讀取事假、病假與其他假別的地方
+                "others" => [
+                    "事假" => $usedPersonal,
+                    "病假" => $usedSick,
+                    // 將其他的假別也合併進來 (使用我們先前算好的 $usedStats)
+                ] + $usedStats
             ]
         ]);
         exit;
