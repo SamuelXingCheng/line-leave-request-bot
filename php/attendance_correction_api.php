@@ -17,8 +17,14 @@ try {
     $stmt = $db->prepare("SELECT name, role FROM users WHERE user_id = ?");
     $stmt->execute([$input['userId']]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
-    $userName = $user ? $user['name'] : "員工";
-    $isBoss = ($user && $user['role'] === 'boss');
+
+    if (!$user) {
+        http_response_code(403);
+        echo json_encode(["status" => "error", "message" => "系統找不到您的員工資料，請先聯繫管理員完成註冊。"]);
+        exit;
+    }
+    $userName = $user['name'];
+    $isBoss = ($user['role'] === 'boss');
 
     // 2. 準備資料與動態狀態
     $uuid = uniqid("FIX-"); 

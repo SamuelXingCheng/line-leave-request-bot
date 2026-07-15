@@ -59,10 +59,16 @@ $db = Database::getConnection();
 $uuid = $db->query("SELECT UUID()")->fetchColumn();
 
 // 撈出員工姓名
-$stmt = $db->prepare("SELECT name FROM users WHERE user_id = ?");
-$stmt->execute([$userId]);
-$row = $stmt->fetch();
-$userName = $row ? $row['name'] : "未知使用者";
+    $stmt = $db->prepare("SELECT name FROM users WHERE user_id = ?");
+    $stmt->execute([$userId]);
+    $row = $stmt->fetch();
+
+    if (!$row) {
+        http_response_code(403);
+        echo json_encode(["status" => "error", "message" => "系統找不到您的員工資料，請先聯繫管理員完成註冊。", "messages" => []]);
+        exit;
+    }
+    $userName = $row['name'];
 
 $now = date("Y-m-d H:i:s");
 $displayTime = date("Y-m-d H:i");

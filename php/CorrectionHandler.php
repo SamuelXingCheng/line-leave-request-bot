@@ -172,11 +172,17 @@ class CorrectionHandler {
         $reason = $this->session->get("correction_reason");
         $type   = $this->session->get("correction_type");
 
-        // 🔥 1. 檢查是否為 Boss
+        // 🔥 1. 檢查是否為 Boss (並阻擋幽靈員工)
         $stmt = $this->db->prepare("SELECT role FROM users WHERE user_id = ?");
         $stmt->execute([$this->lineId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        $isBoss = ($row && $row['role'] === 'boss');
+        
+        if (!$row) {
+            replyTextMessage($this->replyToken, "⚠️ 系統找不到您的員工資料，請先聯繫管理員完成註冊。");
+            $this->session->clear();
+            return;
+        }
+        $isBoss = ($row['role'] === 'boss');
 
         // 🔥 2. 決定狀態
         $approvalStatus = $isBoss ? 'approved' : 'pending';
