@@ -243,15 +243,27 @@ try {
         $notifyMsg = '';
 
         if ($type === 'leave') {
-            $db->prepare("UPDATE leave_requests SET status = ? WHERE id = ?")->execute([$newStatus, $id]);
-            $db->prepare("UPDATE leave_approvals SET status = ?, updated_at = NOW() WHERE request_id = ?")->execute([$newStatus, $id]);
-            
-            $req = $db->prepare("SELECT user_id, start_at FROM leave_requests WHERE id = ?"); 
-            $req->execute([$id]); $res = $req->fetch(PDO::FETCH_ASSOC);
-            if ($res) {
-                $userIdToNotify = $res['user_id'];
+            $stmt = $db->prepare("SELECT user_id, start_at, status, deduct_annual, deduct_comp FROM leave_requests WHERE id = ? FOR UPDATE");
+            $stmt->execute([$id]);
+            $lv = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($lv && $lv['status'] !== $newStatus) {
+                // 如果是退件，且原本尚未退件，則退還已扣除的時數
+                if ($newStatus === 'rejected') {
+                    $refundAnnual = floatval($lv['deduct_annual'] ?? 0);
+                    $refundComp   = floatval($lv['deduct_comp'] ?? 0);
+                    if ($refundAnnual > 0 || $refundComp > 0) {
+                        $db->prepare("UPDATE users SET annual_leave_hours = annual_leave_hours + ?, comp_leave_hours = comp_leave_hours + ? WHERE user_id = ?")
+                           ->execute([$refundAnnual, $refundComp, $lv['user_id']]);
+                    }
+                }
+                
+                $db->prepare("UPDATE leave_requests SET status = ? WHERE id = ?")->execute([$newStatus, $id]);
+                $db->prepare("UPDATE leave_approvals SET status = ?, updated_at = NOW() WHERE request_id = ?")->execute([$newStatus, $id]);
+                
+                $userIdToNotify = $lv['user_id'];
                 $statusText = $newStatus === 'approved' ? '核准' : '退件';
-                $notifyMsg = "【管理員通知】您於 {$res['start_at']} 的假單，已由系統管理員強制{$statusText}。";
+                $notifyMsg = "【管理員通知】您於 {$lv['start_at']} 的假單，已由系統管理員強制{$statusText}。";
             }
             
         } elseif ($type === 'overtime') {

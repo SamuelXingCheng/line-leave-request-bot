@@ -98,10 +98,16 @@ try {
                 $db->beginTransaction();
                 try {
                     if ($item['type'] === 'leave') {
-                        $db->prepare("UPDATE leave_requests SET status = 'approved' WHERE id = ?")->execute([$id]);
-                        $db->prepare("UPDATE leave_approvals SET status = 'approved', updated_at = NOW() WHERE request_id = ? AND supervisor_id = ?")->execute([$id, $lineId]);
-                        $req = $db->prepare("SELECT user_id, start_at FROM leave_requests WHERE id = ?"); $req->execute([$id]); $res = $req->fetch();
-                        // (依據之前的建議，此處推播可保留或刪除)
+                        // 1. 先更新這位主管的簽核狀態
+                        $db->prepare("UPDATE leave_approvals SET status = 'approved', updated_at = NOW() WHERE request_id = ? AND supervisor_id = ? AND status = 'pending'")->execute([$id, $lineId]);
+
+                        // 2. 檢查是否所有主管都簽核完畢
+                        $checkStmt = $db->prepare("SELECT COUNT(*) FROM leave_approvals WHERE request_id = ? AND status != 'approved'");
+                        $checkStmt->execute([$id]);
+                        if ($checkStmt->fetchColumn() == 0) {
+                            // 3. 全員通過才正式核准假單
+                            $db->prepare("UPDATE leave_requests SET status = 'approved' WHERE id = ? AND status = 'pending'")->execute([$id]);
+                        }
                     } elseif ($item['type'] === 'overtime') {
                         $otReq = $db->prepare("SELECT user_id, start_at, hours FROM overtime_requests WHERE id = ? AND status = 'pending' FOR UPDATE"); 
                         $otReq->execute([$id]); 
@@ -145,8 +151,8 @@ try {
             $db->beginTransaction();
             try {
                 if ($item['type'] === 'leave') {
-                    // 1. 查詢假單資料並鎖定
-                    $req = $db->prepare("SELECT user_id, start_at, deduct_annual, deduct_comp FROM leave_requests WHERE id = ? FOR UPDATE");
+                    // 1. 查詢假單資料並鎖定 (加上 pending 防呆，防止重複退還)
+                    $req = $db->prepare("SELECT user_id, start_at, deduct_annual, deduct_comp FROM leave_requests WHERE id = ? AND status = 'pending' FOR UPDATE");
                     $req->execute([$id]); 
                     $res = $req->fetch(PDO::FETCH_ASSOC);
                     
