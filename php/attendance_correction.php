@@ -147,6 +147,7 @@ $liffId = getenv('ATTENDANCE_LIFF_ID');
     </div>
 
     <div class="btn-group">
+        <a href="menu.php" class="btn-submit" style="background-color: #f8fafc; color: #475569; border: 1px solid #cbd5e1; box-shadow: none; text-decoration: none; display: block; text-align: center; box-sizing: border-box;">回選單</a>
         <button type="button" id="btnClose" class="btn-submit">關閉視窗</button>
     </div>
 </div>
@@ -305,7 +306,7 @@ $liffId = getenv('ATTENDANCE_LIFF_ID');
             alert("請手動關閉此瀏覽器分頁或點擊右上角「回選單」。");
         }
     });
-    
+
 </script>
 </body>
 </html>

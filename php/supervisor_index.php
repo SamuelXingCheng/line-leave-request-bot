@@ -13,6 +13,16 @@ $liffId = getenv('MENU_LIFF_ID');
         :root { --primary: #06C755; --bg: #F5F6F8; --text: #333; }
         body { font-family: -apple-system, sans-serif; background: var(--bg); margin: 0; padding: 0; padding-bottom: 80px; }
 
+        /* 頂部標題與回選單按鈕 */
+        .header { display: flex; justify-content: space-between; align-items: center; padding: 15px 15px 10px 15px; background: #fff; }
+        .header h1 { font-size: 1.4rem; font-weight: 700; margin: 0; color: var(--text); border-left: 4px solid var(--primary); padding-left: 12px; line-height: 1.2; }
+        .btn-back {
+            text-decoration: none; font-size: 0.9rem; color: var(--primary); font-weight: 600;
+            background: #f0fdf4; padding: 6px 12px; border-radius: 20px; 
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1); white-space: nowrap; display: inline-block;
+        }
+        .btn-back:active { transform: translateY(1px); background-color: #dcfce7; }
+
         /* 頂部 Tabs (支援橫向滑動) */
         .tabs-wrapper { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.05); position: sticky; top: 0; z-index: 10; overflow-x: auto; }
         .tabs { display: flex; width: max-content; min-width: 100%; }
@@ -54,6 +64,11 @@ $liffId = getenv('MENU_LIFF_ID');
     </style>
 </head>
 <body>
+
+    <div class="header">
+        <h1>主管審核中心</h1>
+        <a href="menu.php" class="btn-back">回選單</a>
+    </div>
 
     <div class="tabs-wrapper">
         <div class="tabs">

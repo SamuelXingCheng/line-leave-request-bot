@@ -28,9 +28,17 @@ $ver = time();
             -webkit-font-smoothing: antialiased;
         }
         /* Header & Form Styles */
-        .header { margin-bottom: 20px; padding: 0 4px; }
-        .header h1 { font-size: 1.4rem; font-weight: 700; margin: 0; color: var(--text-main); border-left: 4px solid var(--primary); padding-left: 12px; line-height: 1.2; }
-        .header p { margin: 6px 0 0 16px; font-size: 0.85rem; color: var(--text-sub); }
+        .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; padding: 0 4px; }
+        .header-text h1 { font-size: 1.4rem; font-weight: 700; margin: 0; color: var(--text-main); border-left: 4px solid var(--primary); padding-left: 12px; line-height: 1.2; }
+        .header-text p { margin: 6px 0 0 16px; font-size: 0.85rem; color: var(--text-sub); }
+        
+        .btn-back {
+            text-decoration: none; font-size: 0.9rem; color: var(--primary); font-weight: 600;
+            background: #fff; padding: 6px 12px; border-radius: 20px; 
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1); white-space: nowrap; display: inline-block;
+        }
+        .btn-back:active { background-color: #f0fdf4; transform: translateY(1px); }
+
         .card { background: #fff; border-radius: 12px; padding: 24px 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
         .section-title { font-size: 0.85rem; font-weight: 600; color: var(--text-sub); margin-bottom: 12px; display: block; letter-spacing: 0.5px; }
         .form-row { display: flex; gap: 12px; margin-bottom: 20px; }
@@ -57,8 +65,11 @@ $ver = time();
 
 <div id="formContainer">
     <div class="header">
-        <h1>請假申請表</h1>
-        <p>Leave Application Form</p>
+        <div class="header-text">
+            <h1>請假申請表</h1>
+            <p>Leave Application Form</p>
+        </div>
+        <a href="menu.php" class="btn-back">回選單</a>
     </div>
 
     <div class="card">
@@ -128,7 +139,8 @@ $ver = time();
     </div>
 
     <div class="btn-group">
-        <button id="btnClose" class="btn-submit">關閉視窗</button>
+        <a href="menu.php" class="btn-submit" style="background-color: #f8fafc; color: #475569; border: 1px solid #cbd5e1; box-shadow: none; text-decoration: none; display: block; text-align: center; box-sizing: border-box;">回選單</a>
+        <button type="button" id="btnClose" class="btn-submit">關閉視窗</button>
     </div>
 </div>
 

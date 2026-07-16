@@ -121,7 +121,8 @@ if (!$liffId) die("系統錯誤：未設定 OVERTIME_LIFF_ID");
     </div>
 
     <div class="btn-group">
-        <button id="btnClose" class="btn-submit">關閉視窗</button>
+        <a href="menu.php" class="btn-submit" style="background-color: #f8fafc; color: #475569; border: 1px solid #cbd5e1; box-shadow: none; text-decoration: none; display: block; text-align: center; box-sizing: border-box;">回選單</a>
+        <button type="button" id="btnClose" class="btn-submit">關閉視窗</button>
     </div>
 </div>
 

@@ -126,7 +126,8 @@ if (empty($_SESSION['admin_logged_in'])) {
     <nav class="navbar navbar-expand-lg">
         <div class="container-fluid px-4">
             <span class="navbar-brand">企業 HR 管理中心</span>
-            <div class="d-flex">
+            <div class="d-flex align-items-center">
+                <a href="menu.php" class="btn btn-outline-info btn-sm fw-bold me-3">回選單</a>
                 <a href="?logout=1" class="btn btn-outline-light btn-sm fw-bold">安全登出</a>
             </div>
         </div>
