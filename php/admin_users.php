@@ -359,6 +359,10 @@ if (empty($_SESSION['admin_logged_in'])) {
                         <label class="form-label small fw-bold text-muted">到職日期</label>
                         <input type="date" id="userStartDate" class="form-control border-secondary bg-dark text-white">
                     </div>
+                    <div class="form-check form-switch mt-3">
+                        <input class="form-check-input" type="checkbox" id="userIsExempt">
+                        <label class="form-check-label small fw-bold text-info" for="userIsExempt">高階主管 / 免打卡人員</label>
+                    </div>
                 </div>
                 <div class="modal-footer border-secondary">
                     <button type="button" class="btn btn-outline-secondary fw-bold" data-bs-dismiss="modal">取消</button>
@@ -557,7 +561,7 @@ if (empty($_SESSION['admin_logged_in'])) {
                     // ==========================================
                     // 🔥 核心修改：動態比對出「未打卡」人員
                     // ==========================================
-                    const activeUsers = allUsers.filter(u => u.is_archived != 1);
+                    const activeUsers = allUsers.filter(u => u.is_archived != 1 && u.is_exempt != 1);
                     // 如果沒有選日期，預設只查「今天」的未打卡（避免查出無窮無盡的歷史資料）
                     let checkStartStr = start || todayStr;
                     let checkEndStr = end || todayStr;
@@ -645,6 +649,8 @@ if (empty($_SESSION['admin_logged_in'])) {
                         const statusHtml = isArchived ? '<span class="badge bg-secondary">已離職</span>' : '<span class="badge bg-success">在職</span>';
                         const opacityClass = isArchived ? 'opacity-50' : '';
                         const resignText = isArchived && u.resign_date ? `<br><small class="text-danger">離職日: ${u.resign_date}</small>` : '';
+                        const exemptBadge = (u.is_exempt == 1) ? '<span class="badge bg-info text-dark ms-1">免打卡</span>' : '';
+
 
                         let buttons = '';
                         if (isArchived) {
@@ -659,7 +665,7 @@ if (empty($_SESSION['admin_logged_in'])) {
 
                         return `<tr class="${opacityClass}">
                             <td>${statusHtml} <span class="text-muted small ms-1">#${u.id}</span></td>
-                            <td><span class="fw-bold text-white">${u.name}</span> ${resignText}</td>
+                            <td><span class="fw-bold text-white">${u.name}</span> ${exemptBadge} ${resignText}</td>
                             <td class="font-monospace text-secondary">${u.user_id}</td>
                             <td>${u.start_date || '-'}</td>
                             <td>${buttons}</td>
@@ -720,11 +726,18 @@ if (empty($_SESSION['admin_logged_in'])) {
             document.getElementById('userName').value = mode === 'edit' ? userData.name : ""; 
             document.getElementById('userLineId').value = mode === 'edit' ? userData.user_id : ""; 
             document.getElementById('userStartDate').value = mode === 'edit' ? (userData.start_date || "") : ""; 
-            bsUserModal.show(); 
+            document.getElementById('userIsExempt').checked = mode === 'edit' ? (userData.is_exempt == 1) : false;
+            bsUserModal.show();
         }
 
         async function saveUser() { 
-            const payload = { id: document.getElementById('editId').value, name: document.getElementById('userName').value, user_id: document.getElementById('userLineId').value, start_date: document.getElementById('userStartDate').value }; 
+            const payload = { 
+                id: document.getElementById('editId').value, 
+                name: document.getElementById('userName').value, 
+                user_id: document.getElementById('userLineId').value, 
+                start_date: document.getElementById('userStartDate').value,
+                is_exempt: document.getElementById('userIsExempt').checked ? 1 : 0
+            };
             const res = await fetch(`admin_api.php?action=${currentMode === 'add' ? 'add' : 'edit'}`, { method: currentMode === 'add' ? 'POST' : 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); 
             const json = await res.json(); 
             if (json.status === 'success') { alert("儲存成功"); bsUserModal.hide(); loadUsers(); } else alert("錯誤：" + json.message); 
@@ -891,8 +904,8 @@ if (empty($_SESSION['admin_logged_in'])) {
 
         // 🔥 關鍵修正：準確撈出未打卡名單
         function generatePopoverHtml(dateStr, data) {
-            const activeUsers = allUsers.filter(u => u.is_archived != 1);
-            
+            const activeUsers = allUsers.filter(u => u.is_archived != 1 && u.is_exempt != 1);
+
             const normalCk = data.clockins.filter(c => c.status === 'success' || c.approval_status === 'approved');
             const pendingCk = data.clockins.filter(c => c.approval_status === 'pending');
             

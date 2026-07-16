@@ -1,5 +1,3 @@
-
-
 ---
 
 ```markdown
@@ -7,8 +5,8 @@
 
 ## 1. 系統概述與技術棧
 * **專案名稱：** LINE 請假出勤機器人 (LINE Leave Request Bot)
-* **核心技術：** 原生 PHP (無特定大型框架)、MySQL (使用 PDO)、LINE Messaging API、LINE Front-end Framework (LIFF)。
-* **系統特色：** 具備「雙軌並行機制」，使用者可以透過 LIFF 網頁表單（Form）或是 LINE 聊天室文字指令（Text Command）來完成各項出勤申請。
+* **核心技術：** 原生 PHP (無特定大型框架)、MySQL (使用 PDO)、LINE Messaging API、LINE Front-end Framework (LIFF)、Bootstrap 5 (深色商務主題)。
+* **系統特色：** 具備「雙軌並行機制」，使用者可以透過 LIFF 網頁表單（Form）或是 LINE 聊天室文字指令（Text Command）來完成各項出勤申請。後端管理系統則採用全 AJAX 驅動的單頁應用程式 (SPA) 架構。
 
 ---
 
@@ -45,10 +43,13 @@
 * **資料同步修復：** `sync_leave_balances.php`, `repair_leave_data.php` (確保 `users` 表的存摺數字正確)
 * **報表與行事曆：** `export_year_report.php` (匯出 CSV 報表), `sync_holidays.php` (匯入人事行政總處行事曆)
 
-### 👑 6. 簽核中心與 HR 後台管理模組
-主管與管理員的專屬介面，用於批次審核與人事資料維護。
+### 👑 6. 簽核中心與 HR 智慧管理後台模組
+採用 Bootstrap 5 打造的高效能無表情符號商務後台，支援批次審核與人事資料維護。
 * **主管審核中心：** `supervisor_index.php`, `supervisor_api.php` (支援假單、變更單、加班單、打卡異常的批次處理)
-* **HR 管理後台：** `admin_users.php`, `admin_api.php` (新增員工、設定 `user_supervisors` 組織架構、強制代簽核與離職封存)
+* **HR 智慧管理後台：** `admin_users.php`, `admin_api.php` 
+  * 支援獨立密碼安全驗證，可於外部瀏覽器全螢幕開啟。
+  * **雙層互動視圖：** 具備「列表模式」與「行事曆模式」，支援 Hover 統計浮窗與單日明細 Modal，且支援 Modal 內無縫快捷簽核與自動重載。
+  * **智慧資料處理：** 列表模式支援單據狀態前端過濾，並具備「日期自動補全 (Smart Defaults)」與「未打卡員工動態偵測 (Missing Punch)」防呆機制。
 
 ### ⚙️ 7. 系統核心與共用基礎模組
 驅動整個系統運作的底層架構。
@@ -77,8 +78,9 @@
 當你需要新增或修改程式碼時，請嚴格遵守以下準則：
 1. **資料庫操作：** 一律使用 PDO Prepared Statements (`?` 綁定參數) 來防止 SQL Injection。
 2. **交易安全 (Transactions)：** 牽涉到「扣除休假餘額」或「更新假單狀態」等多表連動操作時，必須使用 `beginTransaction()` 與 `commit()`，並加入 `try...catch` 進行 `rollBack()`。高併發場景（如主管簽核）需使用 `FOR UPDATE` 進行悲觀鎖定。
-3. **單一資料來源：** 時數計算邏輯（扣除午休、判斷假日）應收斂於 `utils.php`，避免重複定義。
-4. **API 回傳格式：** 所有 `_api.php` 結尾的檔案，回傳格式必須為 JSON：`{"status": "success" | "error", "message": "...", "data": ...}`。
+3. **前端防呆與容錯 (Frontend Fallbacks)：** 處理字串切割 (`substring`) 等操作前，必須檢查空值 (`null/undefined`)；處理模態視窗與浮動元件前，需考慮非同步加載順序並清除殘留的 DOM 節點，防止隱形當機 (Silent Errors)。
+4. **單一資料來源：** 時數計算邏輯（扣除午休、判斷假日）應收斂於 `utils.php`，避免重複定義。
+5. **API 回傳格式：** 所有 `_api.php` 結尾的檔案，回傳格式必須為 JSON：`{"status": "success" | "error", "message": "...", "data": ...}`。
 
 ---
 
@@ -147,6 +149,7 @@ AI 助手在撰寫 SQL 查詢時，必須嚴格遵守以下欄位名稱，切勿
 | `start_date` | DATE | 到職日，用於計算特休年資 |
 | `role` | VARCHAR | 角色權限 (`boss`, `employee`) |
 | `is_archived` | TINYINT | 離職註記 (0: 在職, 1: 離職) |
+| `is_exempt` | TINYINT | 高階主管/免打卡標記 (0: 需打卡, 1: 排除未打卡異常) |
 | `entitled_annual_hours` | FLOAT | 本年度法定應得特休總時數 |
 | `annual_leave_hours` | FLOAT | **剩餘特休時數** (動態扣抵) |
 | `comp_leave_hours` | FLOAT | **剩餘補休時數** (動態扣抵) |
@@ -192,7 +195,7 @@ AI 助手在撰寫 SQL 查詢時，必須嚴格遵守以下欄位名稱，切勿
 | `user_id` | VARCHAR | 打卡人的 LINE ID |
 | `mode` | VARCHAR | `上班` 或 `下班` |
 | `status` | VARCHAR | 系統判定: `success`, `fail`, `pending` |
-| `approval_status` | VARCHAR | 主管審核: `normal`, `pending`, `approved`, `rejected` |
+| `approval_status` | VARCHAR | 主管審核: `normal`, `pending`, `approved`, `rejected` (`missing_punch` 則於前端動態生成) |
 
 ### 🕒 6. 加班申請單 (`overtime_requests`)
 
