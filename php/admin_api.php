@@ -33,10 +33,12 @@ try {
         $userId = $input['user_id'] ?? '';
         $name = $input['name'] ?? '';
         $startDate = $input['start_date'] ?? null;
+        $isExempt = isset($input['is_exempt']) ? (int)$input['is_exempt'] : 0; // 🔥 接收前端免打卡參數
+        
         if (empty($userId) || empty($name)) throw new Exception("LINE ID 與姓名為必填欄位");
 
-        $stmt = $db->prepare("INSERT INTO users (user_id, name, start_date, created_at) VALUES (?, ?, ?, NOW())");
-        $stmt->execute([$userId, $name, $startDate]);
+        $stmt = $db->prepare("INSERT INTO users (user_id, name, start_date, is_exempt, created_at) VALUES (?, ?, ?, ?, NOW())");
+        $stmt->execute([$userId, $name, $startDate, $isExempt]);
         echo json_encode(['status' => 'success', 'message' => '新增成功']);
         exit;
     }
@@ -46,10 +48,12 @@ try {
         $userId = $input['user_id'] ?? '';
         $name = $input['name'] ?? '';
         $startDate = $input['start_date'] ?? null;
+        $isExempt = isset($input['is_exempt']) ? (int)$input['is_exempt'] : 0; // 🔥 接收前端免打卡參數
+        
         if (empty($id) || empty($userId) || empty($name)) throw new Exception("缺少必要更新資料");
 
-        $stmt = $db->prepare("UPDATE users SET user_id = ?, name = ?, start_date = ? WHERE id = ?");
-        $stmt->execute([$userId, $name, $startDate, $id]);
+        $stmt = $db->prepare("UPDATE users SET user_id = ?, name = ?, start_date = ?, is_exempt = ? WHERE id = ?");
+        $stmt->execute([$userId, $name, $startDate, $isExempt, $id]);
         echo json_encode(['status' => 'success', 'message' => '更新成功']);
         exit;
     }

@@ -154,40 +154,56 @@ if (empty($_SESSION['admin_logged_in'])) {
             
             <!-- 1. 今日出勤看板 -->
             <div class="tab-pane fade show active" id="dashboard">
-                <div class="row g-4 mb-4">
+                <div class="row g-4 mb-4 align-items-stretch">
+                    
                     <div class="col-md-3">
                         <div class="card kpi-card h-100 border-0 shadow-sm">
-                            <div class="card-body">
+                            <div class="card-body d-flex flex-column">
                                 <div class="text-muted small fw-bold text-uppercase">應到總人數</div>
-                                <h3 class="mt-2 mb-0 fw-bold text-white" id="dashTotalEmp">-</h3>
+                                <h3 class="mt-2 mb-3 fw-bold text-white" id="dashTotalEmp">-</h3>
+                                <div class="border-top border-secondary pt-3 mt-auto w-100" id="dashExpectedList">
+                                    <span class="text-muted small">讀取中...</span>
+                                </div>
                             </div>
                         </div>
                     </div>
+
                     <div class="col-md-3">
                         <div class="card kpi-card success h-100 border-0 shadow-sm">
-                            <div class="card-body">
+                            <div class="card-body d-flex flex-column">
                                 <div class="text-muted small fw-bold text-uppercase">今日實到 (已打卡)</div>
-                                <h3 class="mt-2 mb-0 fw-bold text-success" id="dashClockin">-</h3>
+                                <h3 class="mt-2 mb-3 fw-bold text-success" id="dashClockin">-</h3>
+                                <div class="border-top border-secondary pt-3 mt-auto w-100" id="dashClockinList">
+                                    <span class="text-muted small">讀取中...</span>
+                                </div>
                             </div>
                         </div>
                     </div>
+
                     <div class="col-md-3">
                         <div class="card kpi-card warning h-100 border-0 shadow-sm">
-                            <div class="card-body">
+                            <div class="card-body d-flex flex-column">
                                 <div class="text-muted small fw-bold text-uppercase">今日請假人數</div>
-                                <h3 class="mt-2 mb-2 fw-bold text-warning" id="dashLeaveCount">-</h3>
-                                <div class="small text-muted border-top border-secondary pt-2" id="dashLeaveList" style="min-height: 20px;">無人請假</div>
+                                <h3 class="mt-2 mb-3 fw-bold text-warning" id="dashLeaveCount">-</h3>
+                                <div class="border-top border-secondary pt-3 mt-auto w-100" id="dashLeaveList">
+                                    <span class="text-muted small">讀取中...</span>
+                                </div>
                             </div>
                         </div>
                     </div>
+
                     <div class="col-md-3">
                         <div class="card kpi-card border-0 shadow-sm" style="border-left-color: #dc3545;">
-                            <div class="card-body">
-                                <div class="text-muted small fw-bold text-uppercase">待處理異常 / 待簽核</div>
-                                <h3 class="mt-2 mb-0 fw-bold text-danger" id="dashPending">-</h3>
+                            <div class="card-body d-flex flex-column">
+                                <div class="text-muted small fw-bold text-uppercase">今日待處理異常</div>
+                                <h3 class="mt-2 mb-3 fw-bold text-danger" id="dashPending">-</h3>
+                                <div class="border-top border-secondary pt-3 mt-auto w-100" id="dashPendingList">
+                                    <span class="text-muted small">讀取中...</span>
+                                </div>
                             </div>
                         </div>
                     </div>
+
                 </div>
             </div>
 
@@ -512,18 +528,133 @@ if (empty($_SESSION['admin_logged_in'])) {
             } catch (err) { alert("系統錯誤，無法連線。"); }
         }
 
+        // 👇 替換整個 loadDashboard 函式：
         async function loadDashboard() {
             try {
-                const res = await fetch('admin_api.php?action=dashboard'); const json = await res.json();
-                if (json.status === 'success') {
-                    const data = json.data;
-                    document.getElementById('dashTotalEmp').innerText = data.total_emp + " 人"; 
-                    document.getElementById('dashClockin').innerText = data.clock_in_count + " 人";
-                    document.getElementById('dashPending').innerText = data.total_pending + " 筆"; 
-                    document.getElementById('dashLeaveCount').innerText = data.leave_count + " 人";
-                    document.getElementById('dashLeaveList').innerHTML = data.leaves_today.length > 0 ? data.leaves_today.map(l => `- ${l.name} (${l.leave_type})`).join('<br>') : "全體出勤正常";
+                // 取得今天日期字串 (YYYY-MM-DD)
+                const now = new Date();
+                const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+                // 同時請求：大盤統計 API + 單日明細 API
+                const [resDash, resRec] = await Promise.all([
+                    fetch('admin_api.php?action=dashboard'),
+                    fetch(`admin_api.php?action=all_records&start=${todayStr}&end=${todayStr}`)
+                ]);
+                
+                const jsonDash = await resDash.json();
+                const jsonRec = await resRec.json();
+
+                if (jsonDash.status === 'success' && jsonRec.status === 'success') {
+                    
+                    // --- 1. 處理應到名單 (排除免打卡) ---
+                    const activeUsers = allUsers.filter(u => u.is_archived != 1);
+                    const expectedUsers = activeUsers.filter(u => u.is_exempt != 1 && u.is_exempt !== '1');
+                    
+                    document.getElementById('dashTotalEmp').innerText = expectedUsers.length + " 人";
+                    let expectedHtml = expectedUsers.map(u => `<div class="badge border border-secondary text-light mb-2 d-block text-start p-2" style="font-size:0.85rem;">${u.name}</div>`).join('');
+                    document.getElementById('dashExpectedList').innerHTML = expectedHtml || '<div class="text-muted small">無名單</div>';
+
+                    // --- 2. 處理打卡名單 (已打卡 vs 未打卡) ---
+                    const todaysClockins = jsonRec.data.clockins;
+                    // 找出今天有成功打卡的姓名
+                    const clockedInNames = new Set(todaysClockins.filter(c => c.status === 'success' || c.approval_status === 'approved').map(c => c.user_name));
+                    // 應到名單 扣除 有打卡的 = 未打卡名單
+                    const missingUsers = expectedUsers.filter(u => !clockedInNames.has(u.name));
+
+                    document.getElementById('dashClockin').innerText = clockedInNames.size + " 人";
+                    
+                    let clockinHtml = '';
+                    if (clockedInNames.size > 0) {
+                        clockinHtml += `<div class="text-success small fw-bold mb-2">已打卡：</div>`;
+                        clockinHtml += Array.from(clockedInNames).map(name => `<div class="badge border border-success text-success mb-2 d-block text-start p-2" style="font-size:0.85rem;">${name}</div>`).join('');
+                    }
+                    if (missingUsers.length > 0) {
+                        clockinHtml += `<div class="text-danger small fw-bold mb-2 mt-3">未打卡：</div>`;
+                        clockinHtml += missingUsers.map(u => `<div class="badge border border-danger text-danger mb-2 d-block text-start p-2" style="font-size:0.85rem;">${u.name}</div>`).join('');
+                    }
+                    document.getElementById('dashClockinList').innerHTML = clockinHtml || '<div class="text-muted small">無資料</div>';
+
+                    // --- 3. 處理請假名單 ---
+                    const leavesToday = jsonDash.data.leaves_today; 
+                    document.getElementById('dashLeaveCount').innerText = leavesToday.length + " 人";
+                    
+                    let leaveHtml = '';
+                    if (leavesToday.length > 0) {
+                        leaveHtml = leavesToday.map(l => `<div class="badge border border-warning text-warning mb-2 d-block text-start p-2" style="font-size:0.85rem;">${l.name} - ${l.leave_type}</div>`).join('');
+                    }
+                    document.getElementById('dashLeaveList').innerHTML = leaveHtml || '<div class="text-muted small">無人請假</div>';
+
+                    // --- 4. 處理「今日相關」的待審核單據 ---
+                    const pendingCk = todaysClockins.filter(c => c.approval_status === 'pending');
+                    const pendingLv = jsonRec.data.leaves.filter(l => l.status === 'pending');
+                    const pendingOt = jsonRec.data.overtimes.filter(o => o.status === 'pending');
+                    const todayPendingTotal = pendingCk.length + pendingLv.length + pendingOt.length;
+
+                    document.getElementById('dashPending').innerText = todayPendingTotal + " 筆";
+                    
+                    let pendingHtml = '';
+                    if(pendingCk.length > 0) {
+                        pendingHtml += `<div class="text-info small fw-bold mb-2">打卡異常：</div>`;
+                        pendingHtml += pendingCk.map(c => `<div class="badge border border-info text-info mb-2 d-block text-start p-2" style="font-size:0.85rem;">${c.user_name}</div>`).join('');
+                    }
+                    if(pendingLv.length > 0) {
+                        pendingHtml += `<div class="text-warning small fw-bold mb-2 mt-3">請假待審：</div>`;
+                        pendingHtml += pendingLv.map(l => `<div class="badge border border-warning text-warning mb-2 d-block text-start p-2" style="font-size:0.85rem;">${l.user_name}</div>`).join('');
+                    }
+                    if(pendingOt.length > 0) {
+                        pendingHtml += `<div class="text-primary small fw-bold mb-2 mt-3">加班待審：</div>`;
+                        pendingHtml += pendingOt.map(o => `<div class="badge border border-primary text-primary mb-2 d-block text-start p-2" style="font-size:0.85rem;">${o.user_name}</div>`).join('');
+                    }
+                    document.getElementById('dashPendingList').innerHTML = pendingHtml || '<div class="text-muted small">今日無待辦異常</div>';
+
                 }
-            } catch (err) { console.error(err); }
+            } catch (err) { console.error("Dashboard Error:", err); }
+        }
+
+        // 👇 替換 loadUsers 函式：
+        async function loadUsers() {
+            try {
+                const res = await fetch('admin_api.php?action=list'); 
+                const json = await res.json();
+                
+                if (json.status === 'success') {
+                    allUsers = json.data;
+                    document.getElementById('userTableBody').innerHTML = json.data.map(u => {
+                        // 防呆判定
+                        const isArchived = (u.is_archived == 1 || u.is_archived === '1');
+                        const isExempt = (u.is_exempt == 1 || u.is_exempt === '1');
+                        
+                        // 🔥 組合最左側的狀態標籤
+                        let statusHtml = isArchived ? '<span class="badge bg-secondary">已離職</span>' : '<span class="badge bg-success">在職</span>';
+                        if (!isArchived && isExempt) {
+                            statusHtml += ' <span class="badge bg-info text-dark ms-1">免打卡</span>';
+                        }
+                        
+                        const opacityClass = isArchived ? 'opacity-50' : '';
+                        const resignText = isArchived && u.resign_date ? `<br><small class="text-danger">離職日: ${u.resign_date}</small>` : '';
+
+                        let buttons = '';
+                        if (isArchived) {
+                            buttons = `<button class="btn btn-sm btn-outline-danger fw-bold" onclick="deleteUser(${u.id}, '${u.name}')">刪除</button>`;
+                        } else {
+                            buttons = `
+                                <button class="btn btn-sm btn-outline-primary fw-bold" onclick='openUserModal("edit", ${JSON.stringify(u)})'>編輯</button>
+                                <button class="btn btn-sm btn-outline-secondary fw-bold mx-1" onclick="archiveUser(${u.id}, '${u.name}')">封存</button>
+                                <button class="btn btn-sm btn-outline-danger fw-bold" onclick="deleteUser(${u.id}, '${u.name}')">刪除</button>
+                            `;
+                        }
+
+                        return `<tr class="${opacityClass}">
+                            <td>${statusHtml} <span class="text-muted small ms-1">#${u.id}</span></td>
+                            <td><span class="fw-bold text-white">${u.name}</span> ${resignText}</td>
+                            <td class="font-monospace text-secondary">${u.user_id}</td>
+                            <td>${u.start_date || '-'}</td>
+                            <td>${buttons}</td>
+                        </tr>`;
+                    }).join('') || '<tr><td colspan="5" align="center" class="text-muted py-4">無資料</td></tr>';
+                    populateDropdowns();
+                }
+            } catch (err) { console.error("Error loading users:", err); }
         }
 
         function resetFilter() { 
@@ -646,7 +777,14 @@ if (empty($_SESSION['admin_logged_in'])) {
                     allUsers = json.data;
                     document.getElementById('userTableBody').innerHTML = json.data.map(u => {
                         const isArchived = u.is_archived == 1;
-                        const statusHtml = isArchived ? '<span class="badge bg-secondary">已離職</span>' : '<span class="badge bg-success">在職</span>';
+                        const isExempt = u.is_exempt == 1;
+                        
+                        // 🔥 組合最左側的狀態標籤
+                        let statusHtml = isArchived ? '<span class="badge bg-secondary">已離職</span>' : '<span class="badge bg-success">在職</span>';
+                        if (!isArchived && isExempt) {
+                            statusHtml += ' <span class="badge bg-info text-dark ms-1">免打卡</span>';
+                        }
+                        
                         const opacityClass = isArchived ? 'opacity-50' : '';
                         const resignText = isArchived && u.resign_date ? `<br><small class="text-danger">離職日: ${u.resign_date}</small>` : '';
                         const exemptBadge = (u.is_exempt == 1) ? '<span class="badge bg-info text-dark ms-1">免打卡</span>' : '';
@@ -665,7 +803,7 @@ if (empty($_SESSION['admin_logged_in'])) {
 
                         return `<tr class="${opacityClass}">
                             <td>${statusHtml} <span class="text-muted small ms-1">#${u.id}</span></td>
-                            <td><span class="fw-bold text-white">${u.name}</span> ${exemptBadge} ${resignText}</td>
+                            <td><span class="fw-bold text-white">${u.name}</span> ${resignText}</td>
                             <td class="font-monospace text-secondary">${u.user_id}</td>
                             <td>${u.start_date || '-'}</td>
                             <td>${buttons}</td>
