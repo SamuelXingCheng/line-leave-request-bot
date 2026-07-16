@@ -205,19 +205,29 @@ if (empty($_SESSION['admin_logged_in'])) {
 
                 <!-- A. 列表模式 -->
                 <div id="recordListView">
+
                     <div class="filter-box">
                         <div class="row g-3 align-items-end">
-                            <div class="col-md-3">
+                            <div class="col-md-2">
                                 <label class="form-label small fw-bold text-muted">開始日期</label>
                                 <input type="date" id="filterStart" class="form-control border-secondary bg-dark text-white">
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-md-2">
                                 <label class="form-label small fw-bold text-muted">結束日期</label>
                                 <input type="date" id="filterEnd" class="form-control border-secondary bg-dark text-white">
                             </div>
-                            <div class="col-md-6 d-flex gap-2">
-                                <button class="btn btn-primary px-4 fw-bold" onclick="loadRecords()">查詢紀錄</button>
-                                <button class="btn btn-outline-secondary fw-bold" onclick="resetFilter()">重置</button>
+                            <div class="col-md-3">
+                                <label class="form-label small fw-bold text-muted">單據狀態</label>
+                                <select id="filterStatus" class="form-select border-secondary bg-dark text-white">
+                                    <option value="all">所有狀態</option>
+                                    <option value="pending">待審核</option>
+                                    <option value="approved">已核准 / 正常</option>
+                                    <option value="rejected">已退件 / 異常</option>
+                                </select>
+                            </div>
+                            <div class="col-md-5 d-flex gap-2">
+                                <button class="btn btn-primary px-4 fw-bold" onclick="loadRecords()">查詢與篩選</button>
+                                <button class="btn btn-outline-secondary fw-bold" onclick="resetFilter()">重置條件</button>
                             </div>
                         </div>
                     </div>
@@ -455,7 +465,8 @@ if (empty($_SESSION['admin_logged_in'])) {
                 'success': '<span class="badge bg-success px-2 py-1">成功</span>',
                 'fail': '<span class="badge bg-danger px-2 py-1">異常</span>',
                 'rejected': '<span class="badge bg-danger px-2 py-1">已退件</span>',
-                'cancelled': '<span class="badge bg-secondary px-2 py-1">已註銷</span>'
+                'cancelled': '<span class="badge bg-secondary px-2 py-1">已註銷</span>',
+                'missing_punch': '<span class="badge bg-danger px-2 py-1">尚未打卡</span>' // 🔥 新增未打卡標籤
             };
             return map[status] || `<span class="badge border border-secondary text-light px-2 py-1">${status}</span>`;
         }
@@ -467,6 +478,9 @@ if (empty($_SESSION['admin_logged_in'])) {
                 buttons += `<button class="btn btn-sm btn-outline-danger fw-bold" onclick="forceAudit('${type}', ${id}, 'rejected')">退件</button>`;
             } else if (currentStatus === 'approved') {
                 buttons += `<button class="btn btn-sm btn-outline-danger fw-bold" onclick="forceAudit('${type}', ${id}, 'rejected')">強制退件</button>`;
+            } else if (currentStatus === 'missing_punch') {
+                // 🔥 新增：未打卡的虛擬紀錄無法直接核准，只能等員工補卡
+                buttons = '<span class="text-danger small fw-bold">等待員工補登</span>';
             } else {
                 buttons = '<span class="text-muted small">無操作</span>';
             }
@@ -508,23 +522,115 @@ if (empty($_SESSION['admin_logged_in'])) {
             } catch (err) { console.error(err); }
         }
 
-        function resetFilter() { document.getElementById('filterStart').value = ''; document.getElementById('filterEnd').value = ''; loadRecords(); }
+        function resetFilter() { 
+            document.getElementById('filterStart').value = ''; 
+            document.getElementById('filterEnd').value = ''; 
+            document.getElementById('filterStatus').value = 'all'; // 重置下拉選單
+            loadRecords(); 
+        }
 
         async function loadRecords() {
             try {
-                const start = document.getElementById('filterStart').value; const end = document.getElementById('filterEnd').value;
-                let url = 'admin_api.php?action=all_records';
+                const startInput = document.getElementById('filterStart');
+                const endInput = document.getElementById('filterEnd');
+                let start = startInput.value; 
+                let end = endInput.value;
+                const statusFilter = document.getElementById('filterStatus').value;
+                
+                const now = new Date();
+                const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
                 if (start || end) {
-                    if (!start || !end) return alert("系統提示：請完整選擇起始與結束日期。");
+                    if (!start && end) { start = end; startInput.value = start; } 
+                    else if (start && !end) { end = (start <= todayStr) ? todayStr : start; endInput.value = end; }
                     if (start > end) return alert("系統提示：起始日期不能晚於結束日期。");
-                    url += `&start=${start}&end=${end}`;
                 }
-                const res = await fetch(url); const json = await res.json();
+                
+                let url = 'admin_api.php?action=all_records';
+                if (start && end) { url += `&start=${start}&end=${end}`; }
+                
+                const res = await fetch(url); 
+                const json = await res.json();
+                
                 if (json.status === 'success') {
-                    const emptyRow = '<tr><td colspan="6" align="center" class="text-muted py-4">查無紀錄</td></tr>';
-                    document.getElementById('recClockinBody').innerHTML = json.data.clockins.map(r => `<tr><td><span class="fw-bold text-white">${r.user_name}</span></td><td>${r.mode}</td><td class="font-monospace text-secondary">${r.clock_time}</td><td>${getStatusBadge(r.status)}</td><td>${getStatusBadge(r.approval_status)}</td><td>${getActionButtons('clockin', r.id, r.approval_status)}</td></tr>`).join('') || emptyRow;
-                    document.getElementById('recLeaveBody').innerHTML = json.data.leaves.map(r => `<tr><td><span class="fw-bold text-white">${r.user_name}</span></td><td>${r.leave_type}</td><td class="font-monospace text-secondary">${r.start_at}</td><td class="font-monospace text-secondary">${r.end_at}</td><td>${getStatusBadge(r.status)}</td><td>${getActionButtons('leave', r.id, r.status)}</td></tr>`).join('') || emptyRow;
-                    document.getElementById('recOvertimeBody').innerHTML = json.data.overtimes.map(r => `<tr><td><span class="fw-bold text-white">${r.user_name}</span></td><td class="font-monospace text-secondary">${r.start_at}</td><td class="font-monospace text-secondary">${r.end_at}</td><td class="fw-bold text-info">${r.hours}h</td><td>${getStatusBadge(r.status)}</td><td>${getActionButtons('overtime', r.id, r.status)}</td></tr>`).join('') || emptyRow;
+
+                    // ==========================================
+                    // 🔥 核心修改：動態比對出「未打卡」人員
+                    // ==========================================
+                    const activeUsers = allUsers.filter(u => u.is_archived != 1);
+                    // 如果沒有選日期，預設只查「今天」的未打卡（避免查出無窮無盡的歷史資料）
+                    let checkStartStr = start || todayStr;
+                    let checkEndStr = end || todayStr;
+                    
+                    let curDate = new Date(checkStartStr + 'T00:00:00');
+                    let endDateObj = new Date(checkEndStr + 'T00:00:00');
+                    
+                    // 為了效能與合理性，最多只回推比對 31 天內的未打卡
+                    const diffDays = Math.ceil(Math.abs(endDateObj - curDate) / (1000 * 60 * 60 * 24));
+                    if (diffDays <= 31) {
+                        while (curDate <= endDateObj) {
+                            const y = curDate.getFullYear();
+                            const m = String(curDate.getMonth() + 1).padStart(2, '0');
+                            const d = String(curDate.getDate()).padStart(2, '0');
+                            const dStr = `${y}-${m}-${d}`;
+                            
+                            // 找出當天「有任何打卡紀錄」的人
+                            const clockedInNames = new Set(
+                                json.data.clockins.filter(c => c.clock_time.startsWith(dStr)).map(c => c.user_name)
+                            );
+
+                            // 找出「在職，但今天名單上沒有他」的人
+                            activeUsers.forEach(u => {
+                                if (!clockedInNames.has(u.name)) {
+                                    // 把他塞進打卡紀錄列表中，偽裝成一筆未打卡異常
+                                    json.data.clockins.push({
+                                        id: 'N/A', // 虛擬的 ID
+                                        user_name: u.name,
+                                        mode: '系統偵測',
+                                        clock_time: `${dStr} 尚未打卡`,
+                                        status: 'fail',
+                                        approval_status: 'missing_punch' // 特殊標記
+                                    });
+                                }
+                            });
+                            curDate.setDate(curDate.getDate() + 1);
+                        }
+                    }
+                    
+                    // 將所有紀錄依據時間由新到舊重新排序 (因為我們剛剛塞了新資料進去)
+                    json.data.clockins.sort((a, b) => b.clock_time.localeCompare(a.clock_time));
+                    // ==========================================
+
+
+                    // 前端即時狀態篩選器
+                    const filterByStatus = (record, type) => {
+                        if (statusFilter === 'all') return true;
+                        
+                        const recStatus = (type === 'clockin') ? record.approval_status : record.status;
+                        const secondaryStatus = record.status;
+
+                        if (statusFilter === 'pending') {
+                            // 🔥 修改：當選擇「待審核」時，同時顯示「未打卡 (missing_punch)」的人
+                            return recStatus === 'pending' || secondaryStatus === 'pending' || recStatus === 'missing_punch';
+                        }
+                        if (statusFilter === 'approved') {
+                            return recStatus === 'approved' || secondaryStatus === 'success' || secondaryStatus === 'normal';
+                        }
+                        if (statusFilter === 'rejected') {
+                            return recStatus === 'rejected' || secondaryStatus === 'fail' || secondaryStatus === 'cancelled';
+                        }
+                        return true;
+                    };
+
+                    const filteredClockins = json.data.clockins.filter(r => filterByStatus(r, 'clockin'));
+                    const filteredLeaves = json.data.leaves.filter(r => filterByStatus(r, 'leave'));
+                    const filteredOvertimes = json.data.overtimes.filter(r => filterByStatus(r, 'overtime'));
+
+                    const emptyRow = '<tr><td colspan="6" align="center" class="text-muted py-4">查無符合條件的紀錄</td></tr>';
+                    
+                    document.getElementById('recClockinBody').innerHTML = filteredClockins.map(r => `<tr><td><span class="fw-bold text-white">${r.user_name}</span></td><td>${r.mode}</td><td class="font-monospace text-secondary">${r.clock_time}</td><td>${getStatusBadge(r.status)}</td><td>${getStatusBadge(r.approval_status)}</td><td>${getActionButtons('clockin', r.id, r.approval_status)}</td></tr>`).join('') || emptyRow;
+                    document.getElementById('recLeaveBody').innerHTML = filteredLeaves.map(r => `<tr><td><span class="fw-bold text-white">${r.user_name}</span></td><td>${r.leave_type}</td><td class="font-monospace text-secondary">${r.start_at}</td><td class="font-monospace text-secondary">${r.end_at}</td><td>${getStatusBadge(r.status)}</td><td>${getActionButtons('leave', r.id, r.status)}</td></tr>`).join('') || emptyRow;
+                    document.getElementById('recOvertimeBody').innerHTML = filteredOvertimes.map(r => `<tr><td><span class="fw-bold text-white">${r.user_name}</span></td><td class="font-monospace text-secondary">${r.start_at}</td><td class="font-monospace text-secondary">${r.end_at}</td><td class="fw-bold text-info">${r.hours}h</td><td>${getStatusBadge(r.status)}</td><td>${getActionButtons('overtime', r.id, r.status)}</td></tr>`).join('') || emptyRow;
                 }
             } catch (err) { console.error(err); }
         }
