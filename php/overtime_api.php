@@ -99,10 +99,16 @@ try {
 
     // --- 訊息 1：加班申請單 (主要轉傳內容) ---
     $botId = getenv("LINE_BOT_ID");
+    
+    // [通道 A] 手機版文字指令連結
     $approvalCommand = "/同意加班 {$uuid}";
-    $approvalLink = "line://oaMessage/@{$botId}/?" . rawurlencode($approvalCommand);
+    $mobileApprovalLink = "line://oaMessage/@{$botId}/?" . rawurlencode($approvalCommand);
 
-    $mainText = "【加班申請】\n" .
+    // [通道 B] 電腦/網頁版出勤中心連結 (帶上 tab=overtime 參數)
+    $portalLiffId = getenv("PORTAL_LIFF_ID") ?: getenv("MENU_LIFF_ID");
+    $webApprovalLink = "https://liff.line.me/{$portalLiffId}/?page=supervisor&tab=overtime&highlight={$uuid}";
+
+    $mainText = "【加班申請單】\n" .
                 "────────────────\n" .
                 "申請人員｜{$userName}\n" .
                 "加班日期｜{$date}\n" .
@@ -110,8 +116,11 @@ try {
                 "加班時數｜{$hours} 小時\n" .
                 "加班內容｜{$reason}\n" .
                 "────────────────\n" .
-                "👉 主管簽核連結：\n" .
-                $approvalLink;
+                "請選擇簽核方式：\n\n" .
+                "[手機端快速簽核]\n" .
+                $mobileApprovalLink . "\n\n" .
+                "[電腦端網頁簽核]\n" .
+                $webApprovalLink;
 
     $messages[] = [
         "type" => "text",
