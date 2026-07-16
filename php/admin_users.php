@@ -99,6 +99,9 @@ if (empty($_SESSION['admin_logged_in'])) {
         .cal-day { background: #1e1e1e; min-height: 120px; padding: 8px; cursor: pointer; transition: background 0.2s; position: relative; }
         .cal-day:hover { background: #2a2a2a; }
         .cal-day.empty { background: #121212; cursor: default; }
+        .cal-day.holiday-bg { background-color: #2c1a1c; } 
+        .cal-day.holiday-bg:hover { background-color: #3a2225; }
+        
         .cal-date-num { font-weight: 700; color: #888; margin-bottom: 8px; }
         .cal-day.today .cal-date-num { color: #fff; background: #0d6efd; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; }
         
@@ -945,6 +948,7 @@ if (empty($_SESSION['admin_logged_in'])) {
             renderAdminCalendar();
         }
 
+        // 👇 替換整個 renderAdminCalendar 函式：
         async function renderAdminCalendar() {
             popoverList.forEach(p => p.dispose());
             popoverList = [];
@@ -965,24 +969,39 @@ if (empty($_SESSION['admin_logged_in'])) {
                 
                 json.data.clockins.forEach(c => {
                     const d = c.clock_time.substring(0, 10);
-                    if(!adminCalData[d]) adminCalData[d] = { clockins:[], leaves:[], overtimes:[] };
+                    if(!adminCalData[d]) adminCalData[d] = { clockins:[], leaves:[], overtimes:[], holiday: null };
                     adminCalData[d].clockins.push(c);
                 });
+                
                 json.data.overtimes.forEach(o => {
+                    // 🔥 防呆：過濾掉「已註銷」與「已退件」的加班單
+                    if (o.status === 'cancelled' || o.status === 'rejected') return;
                     const d = o.start_at.substring(0, 10);
-                    if(!adminCalData[d]) adminCalData[d] = { clockins:[], leaves:[], overtimes:[] };
+                    if(!adminCalData[d]) adminCalData[d] = { clockins:[], leaves:[], overtimes:[], holiday: null };
                     adminCalData[d].overtimes.push(o);
                 });
+                
                 json.data.leaves.forEach(l => {
+                    // 🔥 防呆：過濾掉「已註銷」與「已退件」的假單，不再算入日曆
+                    if (l.status === 'cancelled' || l.status === 'rejected') return;
                     let cur = new Date(l.start_at.substring(0, 10));
                     let end = new Date(l.end_at.substring(0, 10));
                     while (cur <= end) {
                         let d = cur.toISOString().substring(0, 10);
-                        if(!adminCalData[d]) adminCalData[d] = { clockins:[], leaves:[], overtimes:[] };
+                        if(!adminCalData[d]) adminCalData[d] = { clockins:[], leaves:[], overtimes:[], holiday: null };
                         adminCalData[d].leaves.push(l);
                         cur.setDate(cur.getDate() + 1);
                     }
                 });
+
+                // 🔥 處理國定假日與補班日
+                if (json.data.holidays) {
+                    json.data.holidays.forEach(h => {
+                        const d = h.date;
+                        if(!adminCalData[d]) adminCalData[d] = { clockins:[], leaves:[], overtimes:[], holiday: null };
+                        adminCalData[d].holiday = h;
+                    });
+                }
 
                 grid.innerHTML = '';
                 const firstDay = new Date(adminCalYear, adminCalMonth - 1, 1).getDay();
@@ -996,10 +1015,22 @@ if (empty($_SESSION['admin_logged_in'])) {
                 for (let i = 1; i <= totalDays; i++) {
                     const dStr = `${adminCalYear}-${String(adminCalMonth).padStart(2,'0')}-${String(i).padStart(2,'0')}`;
                     const isToday = (dStr === todayStr) ? 'today' : '';
-                    const data = adminCalData[dStr] || { clockins:[], leaves:[], overtimes:[] };
+                    const data = adminCalData[dStr] || { clockins:[], leaves:[], overtimes:[], holiday: null };
                     
                     let indicators = '';
                     let hasPending = false;
+                    let holidayLabel = '';
+                    let isHolidayClass = '';
+
+                    // 🔥 渲染假日標籤與變更背景色
+                    if (data.holiday) {
+                        if (data.holiday.type === 'holiday') {
+                            holidayLabel = `<span class="text-danger ms-1" style="font-size:0.75rem;">${data.holiday.name}</span>`;
+                            isHolidayClass = 'holiday-bg';
+                        } else if (data.holiday.type === 'workday') {
+                            holidayLabel = `<span class="text-warning ms-1" style="font-size:0.75rem;">${data.holiday.name}</span>`;
+                        }
+                    }
 
                     if (data.clockins.some(c => c.approval_status === 'pending') || 
                         data.leaves.some(l => l.status === 'pending') || 
@@ -1015,7 +1046,7 @@ if (empty($_SESSION['admin_logged_in'])) {
                     const popoverHtml = generatePopoverHtml(dStr, data);
 
                     const cell = document.createElement('div');
-                    cell.className = `cal-day ${isToday}`;
+                    cell.className = `cal-day ${isToday} ${isHolidayClass}`; // 加上假日 class
                     cell.setAttribute('data-bs-toggle', 'popover');
                     cell.setAttribute('data-bs-placement', 'auto');
                     cell.setAttribute('data-bs-html', 'true');
@@ -1024,8 +1055,11 @@ if (empty($_SESSION['admin_logged_in'])) {
 
                     cell.onclick = () => openDayDetail(dStr);
 
+                    // 🔥 顯示日期與假日名稱
                     cell.innerHTML = `
-                        <div class="cal-date-num">${i}</div>
+                        <div class="cal-date-num d-flex justify-content-between align-items-start">
+                            <span>${i}</span> ${holidayLabel}
+                        </div>
                         <div class="cal-indicator">${indicators}</div>
                     `;
                     grid.appendChild(cell);

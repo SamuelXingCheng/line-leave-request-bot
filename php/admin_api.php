@@ -219,12 +219,24 @@ try {
         $stmtC->execute($params);
         $clockins = $stmtC->fetchAll(PDO::FETCH_ASSOC);
 
+        $whereH = "";
+        $paramsH = [];
+        if (!empty($startDate) && !empty($endDate)) {
+            $whereH = "WHERE date BETWEEN ? AND ?";
+            $paramsH = [$startDate, $endDate];
+        }
+        $stmtH = $db->prepare("SELECT date, name, type FROM holidays $whereH");
+        $stmtH->execute($paramsH);
+        $holidays = $stmtH->fetchAll(PDO::FETCH_ASSOC);
+
+        // 👇 修改回傳的 JSON 陣列，把 holidays 塞進去：
         echo json_encode([
             'status' => 'success',
             'data' => [
                 'leaves' => $leaves,
                 'overtimes' => $overtimes,
-                'clockins' => $clockins
+                'clockins' => $clockins,
+                'holidays' => $holidays // 🔥 新增假日資料
             ]
         ]);
         exit;
