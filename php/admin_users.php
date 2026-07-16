@@ -1,6 +1,6 @@
 <?php
 session_start();
-// 🔥 這是你的後台專屬密碼，可以自行修改
+// 系統管理員密碼
 $ADMIN_PASSWORD = "churchadmin2026"; 
 
 // 處理登出邏輯
@@ -18,199 +18,324 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['password'])) {
         header("Location: admin_users.php"); 
         exit;
     } else {
-        $error_msg = "密碼錯誤，請重新輸入。";
+        $error_msg = "密碼驗證失敗，請重新輸入。";
     }
 }
 
 // ========================================================
-// 🛡️ 保護牆：如果尚未登入，顯示登入畫面，並「攔截」下方內容載入
+// 🛡️ 保護牆：如果尚未登入，顯示純淨版商務登入畫面
 // ========================================================
 if (empty($_SESSION['admin_logged_in'])) {
 ?>
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>系統管理後台登入</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #F3F4F6; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .login-box { background: #fff; padding: 40px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); text-align: center; width: 100%; max-width: 320px; border: 1px solid #E5E7EB; }
-        .login-box h2 { margin-top: 0; color: #111827; font-size: 1.25rem; }
-        .login-box input { width: 100%; box-sizing: border-box; padding: 10px; margin: 15px 0; border: 1px solid #D1D5DB; border-radius: 4px; font-size: 0.95rem; }
-        .login-box button { width: 100%; background: #06C755; color: #fff; border: none; padding: 10px; border-radius: 4px; font-weight: 600; cursor: pointer; font-size: 0.95rem; }
-        .login-box button:hover { background: #05b04a; }
-        .error { color: #DC2626; font-size: 0.85rem; margin-bottom: 10px; font-weight: 600; }
-    </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HR 管理中心 - 登入</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
-<body>
-    <div class="login-box">
-        <h2>系統管理後台</h2>
-        <?php if($error_msg) echo "<div class='error'>$error_msg</div>"; ?>
-        <form method="POST">
-            <input type="password" name="password" placeholder="請輸入管理員密碼" required autofocus>
-            <button type="submit">登入</button>
-        </form>
+<body class="bg-light d-flex align-items-center justify-content-center" style="height: 100vh;">
+    <div class="card shadow-sm border-0" style="width: 100%; max-width: 380px;">
+        <div class="card-body p-5">
+            <h4 class="text-center mb-4 fw-bold text-dark">HR 管理中心</h4>
+            <?php if($error_msg): ?>
+                <div class="alert alert-danger py-2 text-center" role="alert" style="font-size: 0.9rem;">
+                    <?php echo $error_msg; ?>
+                </div>
+            <?php endif; ?>
+            <form method="POST">
+                <div class="mb-4">
+                    <label class="form-label text-muted small fw-bold">存取密碼</label>
+                    <input type="password" name="password" class="form-control" placeholder="請輸入管理員密碼" required autofocus>
+                </div>
+                <button type="submit" class="btn btn-dark w-100 fw-bold">安全登入</button>
+            </form>
+        </div>
     </div>
-</body></html>
+</body>
+</html>
 <?php 
-    exit; // ⚠️ 非常重要：這行會讓程式停在這裡，沒密碼的人絕對看不到下面的機密資料！
+    exit; 
 } 
 ?>
 
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>系統管理後台</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HR 管理中心</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        :root { --primary: #06C755; --bg: #F3F4F6; --text-main: #111827; --text-sub: #6B7280; --border: #E5E7EB; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text-main); padding: 20px; margin: 0; max-width: 1100px; margin: 0 auto; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; border-bottom: 1px solid var(--border); padding-bottom: 16px; }
-        h1 { margin: 0; font-size: 1.25rem; border-left: 4px solid var(--primary); padding-left: 12px; color: var(--text-main); }
-        
-        .tabs { display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 8px; overflow-x: auto; }
-        .tab { padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 600; color: var(--text-sub); font-size: 0.95rem; transition: 0.2s; white-space: nowrap; }
-        .tab:hover { background: #E5E7EB; }
-        .tab.active { background: var(--primary); color: white; }
-        .tab-content { display: none; }
-        .tab-content.active { display: block; }
-
-        .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px; }
-        .stat-card { background: white; padding: 20px; border-radius: 8px; border: 1px solid var(--border); box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
-        .stat-title { font-size: 0.85rem; color: var(--text-sub); font-weight: 600; text-transform: uppercase; margin-bottom: 8px; }
-        .stat-value { font-size: 2rem; font-weight: 700; color: var(--text-main); }
-        .stat-value.highlight { color: var(--primary); }
-        .stat-value.danger { color: #DC2626; }
-        .stat-list { margin-top: 12px; font-size: 0.85rem; color: var(--text-sub); border-top: 1px dashed var(--border); padding-top: 8px; }
-
-        .badge { padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
-        .badge-pending { background: #FEF3C7; color: #92400E; }
-        .badge-approved { background: #D1FAE5; color: #065F46; }
-        .badge-rejected { background: #FEE2E2; color: #991B1B; }
-
-        .btn { padding: 6px 14px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem; font-weight: 600; transition: 0.2s; }
-        .btn-add { background: var(--primary); color: white; }
-        .btn-edit { background: #F3F4F6; color: #374151; border: 1px solid #D1D5DB; }
-        .btn-delete { background: #FEF2F2; color: #DC2626; border: 1px solid #FECACA; }
-        .btn-logout { background: transparent; color: var(--text-sub); font-size: 0.85rem; padding: 6px 12px; text-decoration: none; display: inline-block; }
-        .btn-logout:hover { color: var(--text-main); }
-        .btn-cancel { background: #F3F4F6; color: #374151; border: 1px solid #D1D5DB; }
-
-        table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.05); border: 1px solid var(--border); margin-bottom: 20px; }
-        th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
-        th { background: #F9FAFB; font-weight: 600; color: var(--text-sub); font-size: 0.85rem; }
-        tr:hover { background: #F9FAFB; }
-
-        .assign-box { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; border: 1px solid var(--border); margin-bottom: 20px; }
-        .assign-box .group { flex: 1; min-width: 200px; }
-        .assign-box label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; color: var(--text-sub); }
-        .assign-box select { width: 100%; padding: 8px 12px; border: 1px solid #D1D5DB; border-radius: 4px; font-size: 0.95rem; background-color: #fff; }
-
-        .modal-overlay { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); align-items:center; justify-content:center; z-index:100; }
-        .modal { background: white; padding: 24px; border-radius: 8px; width: 90%; max-width: 400px; }
-        .form-group { margin-bottom: 16px; }
-        .form-group label { display: block; margin-bottom: 6px; font-size: 0.85rem; font-weight: 600; color: var(--text-sub); }
-        .form-group input { width: 100%; padding: 8px 12px; border: 1px solid #D1D5DB; border-radius: 4px; box-sizing: border-box; }
-        .modal-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
-
-        #backToTopBtn { display: none; position: fixed; bottom: 30px; right: 30px; z-index: 99; background: var(--text-main); color: white; border: none; padding: 12px 16px; border-radius: 4px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: 0.2s; font-size: 0.9rem; }
-        #backToTopBtn:hover { background: #374151; transform: translateY(-2px); box-shadow: 0 6px 8px rgba(0,0,0,0.15); }
+        body { background-color: #F8F9FA; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; padding-bottom: 50px; }
+        .navbar-brand { font-weight: 700; letter-spacing: 0.5px; }
+        .kpi-card { border-left: 4px solid #0d6efd; transition: transform 0.2s; }
+        .kpi-card.success { border-left-color: #198754; }
+        .kpi-card.warning { border-left-color: #ffc107; }
+        .table > :not(caption) > * > * { padding: 1rem 0.75rem; vertical-align: middle; }
+        .nav-tabs .nav-link { font-weight: 600; color: #6c757d; border: none; padding: 1rem 1.5rem; }
+        .nav-tabs .nav-link.active { color: #0d6efd; border-bottom: 3px solid #0d6efd; background: transparent; }
+        .filter-box { background: #fff; padding: 1.5rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-bottom: 1.5rem; border: 1px solid #e9ecef; }
+        .table-container { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid #e9ecef; overflow: hidden; }
+        #backToTopBtn { display: none; position: fixed; bottom: 30px; right: 30px; z-index: 99; opacity: 0.8; }
     </style>
 </head>
 <body>
 
-    <div class="header">
-        <h1>系統管理後台</h1>
-        <a href="?logout=1" class="btn btn-logout">安全登出</a>
-    </div>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4 shadow-sm">
+        <div class="container-fluid px-4">
+            <span class="navbar-brand">企業 HR 管理中心</span>
+            <div class="d-flex">
+                <a href="?logout=1" class="btn btn-outline-light btn-sm fw-bold">安全登出</a>
+            </div>
+        </div>
+    </nav>
 
-    <div class="tabs">
-        <div class="tab active" onclick="switchTab('dashboard')">今日出勤看板</div>
-        <div class="tab" onclick="switchTab('records')">紀錄總表</div>
-        <div class="tab" onclick="switchTab('balances')">休假時數管理</div>
-        <div class="tab" onclick="switchTab('users')">員工資料維護</div>
-        <div class="tab" onclick="switchTab('supervisors')">組織架構設定</div>
-    </div>
+    <div class="container-fluid px-4">
+        <ul class="nav nav-tabs mb-4" id="hrTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#dashboard" type="button" onclick="loadDashboard()">今日出勤看板</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#records" type="button" onclick="loadRecords()">紀錄總表</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#balances" type="button" onclick="loadBalances()">休假時數管理</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#users" type="button" onclick="loadUsers()">員工資料維護</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#supervisors" type="button" onclick="loadUsers().then(loadSupervisors)">組織架構設定</button>
+            </li>
+        </ul>
 
-    <div id="tab-dashboard" class="tab-content active">
-        <div class="dashboard-grid">
-            <div class="stat-card"><div class="stat-title">應到總人數</div><div class="stat-value" id="dashTotalEmp">-</div></div>
-            <div class="stat-card"><div class="stat-title">今日實到 (已打卡)</div><div class="stat-value highlight" id="dashClockin">-</div></div>
-            <div class="stat-card"><div class="stat-title">待處理異常 / 簽核</div><div class="stat-value danger" id="dashPending">-</div></div>
-            <div class="stat-card"><div class="stat-title">今日請假人數</div><div class="stat-value" id="dashLeaveCount">-</div><div class="stat-list" id="dashLeaveList">無人請假</div></div>
+        <div class="tab-content">
+            
+            <div class="tab-pane fade show active" id="dashboard">
+                <div class="row g-4 mb-4">
+                    <div class="col-md-3">
+                        <div class="card kpi-card h-100 border-0 shadow-sm">
+                            <div class="card-body">
+                                <div class="text-muted small fw-bold text-uppercase">應到總人數</div>
+                                <h3 class="mt-2 mb-0 fw-bold" id="dashTotalEmp">-</h3>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card kpi-card success h-100 border-0 shadow-sm">
+                            <div class="card-body">
+                                <div class="text-muted small fw-bold text-uppercase">今日實到 (已打卡)</div>
+                                <h3 class="mt-2 mb-0 fw-bold text-success" id="dashClockin">-</h3>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card kpi-card warning h-100 border-0 shadow-sm">
+                            <div class="card-body">
+                                <div class="text-muted small fw-bold text-uppercase">今日請假人數</div>
+                                <h3 class="mt-2 mb-2 fw-bold text-warning" id="dashLeaveCount">-</h3>
+                                <div class="small text-muted border-top pt-2" id="dashLeaveList" style="min-height: 20px;">無人請假</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card kpi-card border-0 shadow-sm" style="border-left-color: #dc3545;">
+                            <div class="card-body">
+                                <div class="text-muted small fw-bold text-uppercase">待處理異常 / 待簽核</div>
+                                <h3 class="mt-2 mb-0 fw-bold text-danger" id="dashPending">-</h3>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tab-pane fade" id="records">
+                <div class="filter-box">
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold text-muted">開始日期</label>
+                            <input type="date" id="filterStart" class="form-control">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold text-muted">結束日期</label>
+                            <input type="date" id="filterEnd" class="form-control">
+                        </div>
+                        <div class="col-md-6 d-flex gap-2">
+                            <button class="btn btn-primary px-4 fw-bold" onclick="loadRecords()">查詢紀錄</button>
+                            <button class="btn btn-light border fw-bold" onclick="resetFilter()">重置</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="d-flex gap-2 mb-4">
+                    <a href="#titleClockin" class="btn btn-sm btn-outline-secondary">打卡紀錄 ↓</a>
+                    <a href="#titleLeave" class="btn btn-sm btn-outline-secondary">假單紀錄 ↓</a>
+                    <a href="#titleOvertime" class="btn btn-sm btn-outline-secondary">加班紀錄 ↓</a>
+                </div>
+
+                <div class="table-container mb-5">
+                    <h5 id="titleClockin" class="px-4 pt-4 mb-3 fw-bold text-dark" style="scroll-margin-top: 20px;">打卡紀錄</h5>
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light"><tr><th>員工</th><th>類型</th><th>打卡時間</th><th>系統判定</th><th>主管審核</th><th>操作</th></tr></thead>
+                        <tbody id="recClockinBody"></tbody>
+                    </table>
+                </div>
+
+                <div class="table-container mb-5">
+                    <h5 id="titleLeave" class="px-4 pt-4 mb-3 fw-bold text-dark" style="scroll-margin-top: 20px;">假單紀錄</h5>
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light"><tr><th>員工</th><th>假別</th><th>起始時間</th><th>結束時間</th><th>狀態</th><th>操作</th></tr></thead>
+                        <tbody id="recLeaveBody"></tbody>
+                    </table>
+                </div>
+
+                <div class="table-container mb-5">
+                    <h5 id="titleOvertime" class="px-4 pt-4 mb-3 fw-bold text-dark" style="scroll-margin-top: 20px;">加班紀錄</h5>
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light"><tr><th>員工</th><th>起始時間</th><th>結束時間</th><th>時數</th><th>狀態</th><th>操作</th></tr></thead>
+                        <tbody id="recOvertimeBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="tab-pane fade" id="balances">
+                <div class="alert alert-light border text-muted small mb-4">
+                    <strong>操作提示：</strong>系統會根據簽核狀態自動計算時數。若遇特殊情況（如結算誤差），可使用右側按鈕進行人工校正。
+                </div>
+                <div class="table-container">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light"><tr><th>員工姓名</th><th>剩餘特休 (h)</th><th>剩餘補休 (h)</th><th>本年事假 (h)</th><th>本年病假 (h)</th><th>操作</th></tr></thead>
+                        <tbody id="balanceTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="tab-pane fade" id="users">
+                <div class="d-flex justify-content-end mb-3">
+                    <button class="btn btn-primary fw-bold" onclick="openUserModal('add')">新增員工資料</button>
+                </div>
+                <div class="table-container">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light"><tr><th>狀態/編號</th><th>姓名</th><th>LINE 識別碼</th><th>到職日期</th><th>操作</th></tr></thead>
+                        <tbody id="userTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="tab-pane fade" id="supervisors">
+                <div class="filter-box bg-light">
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-4">
+                            <label class="form-label small fw-bold text-muted">員工姓名 (下屬)</label>
+                            <select id="selEmployee" class="form-select"><option value="">-- 請選擇 --</option></select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-bold text-muted">直屬主管</label>
+                            <select id="selSupervisor" class="form-select"><option value="">-- 請選擇 --</option></select>
+                        </div>
+                        <div class="col-md-4">
+                            <button class="btn btn-primary fw-bold" onclick="assignSupervisor()">確認指派</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light"><tr><th>部門主管</th><th>所屬員工</th><th>操作</th></tr></thead>
+                        <tbody id="supTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
         </div>
     </div>
 
-    <div id="tab-records" class="tab-content">
-        <div style="background: white; padding: 16px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 16px; display: flex; gap: 12px; align-items: center; box-shadow: 0 1px 2px rgba(0,0,0,0.05); flex-wrap: wrap;">
-            <label style="font-size: 0.9rem; font-weight: 600; color: var(--text-main);">區間篩選：</label>
-            <input type="date" id="filterStart" style="padding: 8px 12px; border: 1px solid var(--border); border-radius: 4px; font-size: 0.9rem; outline: none;">
-            <span style="color: var(--text-sub); font-size: 0.9rem;">至</span>
-            <input type="date" id="filterEnd" style="padding: 8px 12px; border: 1px solid var(--border); border-radius: 4px; font-size: 0.9rem; outline: none;">
-            <button class="btn btn-add" onclick="loadRecords()" style="margin-left: auto;">查詢紀錄</button>
-            <button class="btn btn-cancel" onclick="resetFilter()">清除重置</button>
-        </div>
-        <div style="display: flex; gap: 10px; margin-bottom: 24px;">
-            <button class="btn btn-edit" style="background: white;" onclick="document.getElementById('titleClockin').scrollIntoView({behavior: 'smooth', block: 'start'})">打卡紀錄 ↓</button>
-            <button class="btn btn-edit" style="background: white;" onclick="document.getElementById('titleLeave').scrollIntoView({behavior: 'smooth', block: 'start'})">假單紀錄 ↓</button>
-            <button class="btn btn-edit" style="background: white;" onclick="document.getElementById('titleOvertime').scrollIntoView({behavior: 'smooth', block: 'start'})">加班紀錄 ↓</button>
-        </div>
-        <h3 id="titleClockin" style="font-size: 1.05rem; color: var(--text-main); margin-bottom: 12px; font-weight: 600; scroll-margin-top: 20px;">打卡紀錄</h3>
-        <table><thead><tr><th>員工</th><th>類型</th><th>打卡時間</th><th>系統判定</th><th>主管審核</th><th>操作</th></tr></thead><tbody id="recClockinBody"></tbody></table>
-        <h3 id="titleLeave" style="font-size: 1.05rem; color: var(--text-main); margin-bottom: 12px; font-weight: 600; margin-top: 40px; scroll-margin-top: 20px;">假單紀錄</h3>
-        <table><thead><tr><th>員工</th><th>假別</th><th>起始時間</th><th>結束時間</th><th>狀態</th><th>操作</th></tr></thead><tbody id="recLeaveBody"></tbody></table>
-        <h3 id="titleOvertime" style="font-size: 1.05rem; color: var(--text-main); margin-bottom: 12px; font-weight: 600; margin-top: 40px; scroll-margin-top: 20px;">加班紀錄</h3>
-        <table><thead><tr><th>員工</th><th>起始時間</th><th>結束時間</th><th>時數</th><th>狀態</th><th>操作</th></tr></thead><tbody id="recOvertimeBody"></tbody></table>
-    </div>
-
-    <div id="tab-balances" class="tab-content">
-        <div style="margin-bottom: 15px; color: var(--text-sub); font-size: 0.9rem;">* 提示：系統會根據簽核狀態自動計算時數。若遇特殊情況，可使用右側按鈕手動校正。</div>
-        <table>
-            <thead><tr><th>員工姓名</th><th>剩餘特休 (h)</th><th>剩餘補休 (h)</th><th>本年已請事假 (h)</th><th>本年已請病假 (h)</th><th>操作</th></tr></thead>
-            <tbody id="balanceTableBody"></tbody>
-        </table>
-    </div>
-
-    <div id="tab-users" class="tab-content">
-        <div style="display: flex; justify-content: flex-end; margin-bottom: 10px;"><button class="btn btn-add" onclick="openModal('add')">+ 新增員工資料</button></div>
-        <table><thead><tr><th>員工編號</th><th>姓名</th><th>LINE 識別碼</th><th>到職日期</th><th>操作</th></tr></thead><tbody id="userTableBody"></tbody></table>
-    </div>
-
-    <div id="tab-supervisors" class="tab-content">
-        <div class="assign-box">
-            <div class="group"><label>員工姓名 (下屬)</label><select id="selEmployee"><option value="">-- 請選擇 --</option></select></div>
-            <div class="group"><label>直屬主管</label><select id="selSupervisor"><option value="">-- 請選擇 --</option></select></div>
-            <button class="btn btn-add" style="padding: 8px 16px;" onclick="assignSupervisor()">確認指派</button>
-        </div>
-        <table><thead><tr><th>部門主管</th><th>所屬員工</th><th>操作</th></tr></thead><tbody id="supTableBody"></tbody></table>
-    </div>
-
-    <div class="modal-overlay" id="userModal">
-        <div class="modal">
-            <h2 id="modalTitle">新增員工資料</h2>
-            <input type="hidden" id="editId">
-            <div class="form-group"><label>員工姓名</label><input type="text" id="userName"></div>
-            <div class="form-group"><label>LINE 識別碼</label><input type="text" id="userLineId"></div>
-            <div class="form-group"><label>到職日期</label><input type="date" id="userStartDate"></div>
-            <div class="modal-actions"><button class="btn btn-cancel" onclick="closeModal()">取消</button><button class="btn btn-add" onclick="saveUser()">確認儲存</button></div>
+    <div class="modal fade" id="userModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold" id="modalTitle">新增員工資料</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="editId">
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted">員工姓名</label>
+                        <input type="text" id="userName" class="form-control">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted">LINE 識別碼</label>
+                        <input type="text" id="userLineId" class="form-control">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted">到職日期</label>
+                        <input type="date" id="userStartDate" class="form-control">
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-light border fw-bold" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary fw-bold" onclick="saveUser()">確認儲存</button>
+                </div>
+            </div>
         </div>
     </div>
 
-    <div class="modal-overlay" id="hoursModal">
-        <div class="modal">
-            <h2 style="margin-top:0; font-size:1.15rem; color:var(--text-main);">手動校正休假時數</h2>
-            <input type="hidden" id="hoursEditId">
-            <div class="form-group"><label>員工姓名</label><input type="text" id="hoursUserName" disabled style="background:#F3F4F6; color:var(--text-sub);"></div>
-            <div class="form-group"><label>剩餘特休 (小時)</label><input type="number" step="0.5" id="valAnnual"></div>
-            <div class="form-group"><label>剩餘補休 (小時)</label><input type="number" step="0.5" id="valComp"></div>
-            <div class="form-group"><label>今年已用事假 (小時)</label><input type="number" step="0.5" id="valPersonal"></div>
-            <div class="form-group"><label>今年已用病假 (小時)</label><input type="number" step="0.5" id="valSick"></div>
-            <div class="modal-actions"><button class="btn btn-cancel" onclick="closeHoursModal()">取消</button><button class="btn btn-add" onclick="saveHours()">確認更新</button></div>
+    <div class="modal fade" id="hoursModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold">手動校正休假時數</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="hoursEditId">
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted">員工姓名</label>
+                        <input type="text" id="hoursUserName" class="form-control bg-light" disabled>
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col-6">
+                            <label class="form-label small fw-bold text-muted">剩餘特休 (h)</label>
+                            <input type="number" step="0.5" id="valAnnual" class="form-control">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small fw-bold text-muted">剩餘補休 (h)</label>
+                            <input type="number" step="0.5" id="valComp" class="form-control">
+                        </div>
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-6">
+                            <label class="form-label small fw-bold text-muted">事假已用 (h)</label>
+                            <input type="number" step="0.5" id="valPersonal" class="form-control">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small fw-bold text-muted">病假已用 (h)</label>
+                            <input type="number" step="0.5" id="valSick" class="form-control">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-light border fw-bold" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary fw-bold" onclick="saveHours()">確認更新</button>
+                </div>
+            </div>
         </div>
     </div>
 
-    <button id="backToTopBtn" onclick="window.scrollTo({top: 0, behavior: 'smooth'})">↑ 回頂部</button>
+    <button id="backToTopBtn" class="btn btn-dark fw-bold rounded-pill" onclick="window.scrollTo({top: 0, behavior: 'smooth'})">↑ 回頂部</button>
 
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         let allUsers = [];
+        let bsUserModal, bsHoursModal;
+        let currentMode = 'add';
+
+        document.addEventListener("DOMContentLoaded", function() {
+            bsUserModal = new bootstrap.Modal(document.getElementById('userModal'));
+            bsHoursModal = new bootstrap.Modal(document.getElementById('hoursModal'));
+            loadDashboard();
+        });
 
         window.addEventListener('scroll', function() {
             const btn = document.getElementById("backToTopBtn");
@@ -218,56 +343,41 @@ if (empty($_SESSION['admin_logged_in'])) {
             else btn.style.display = "none";
         });
 
-        function switchTab(tabId) {
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            event.target.classList.add('active');
-            document.getElementById('tab-' + tabId).classList.add('active');
-
-            if (tabId === 'dashboard') loadDashboard();
-            if (tabId === 'records') loadRecords();
-            if (tabId === 'balances') loadBalances();
-            if (tabId === 'users') loadUsers();
-            if (tabId === 'supervisors') { loadUsers().then(loadSupervisors); }
-            window.scrollTo(0, 0);
-        }
-
         function getStatusBadge(status) {
             const map = {
-                'pending': '<span class="badge badge-pending">待審核</span>',
-                'approved': '<span class="badge badge-approved">已核准</span>',
-                'normal': '<span class="badge badge-approved">正常</span>',
-                'success': '<span class="badge badge-approved">成功</span>',
-                'fail': '<span class="badge badge-rejected">異常</span>',
-                'rejected': '<span class="badge badge-rejected">已退件</span>',
-                'cancelled': '<span class="badge" style="background:#E5E7EB; color:#4B5563;">已註銷</span>'
+                'pending': '<span class="badge bg-warning text-dark px-2 py-1">待審核</span>',
+                'approved': '<span class="badge bg-success px-2 py-1">已核准</span>',
+                'normal': '<span class="badge bg-success px-2 py-1">正常</span>',
+                'success': '<span class="badge bg-success px-2 py-1">成功</span>',
+                'fail': '<span class="badge bg-danger px-2 py-1">異常</span>',
+                'rejected': '<span class="badge bg-danger px-2 py-1">已退件</span>',
+                'cancelled': '<span class="badge bg-secondary px-2 py-1">已註銷</span>'
             };
-            return map[status] || status;
+            return map[status] || `<span class="badge bg-light text-dark border">${status}</span>`;
         }
 
         function getActionButtons(type, id, currentStatus) {
             let buttons = '';
             if (currentStatus === 'pending') {
-                buttons += `<button class="btn btn-add" style="padding:4px 8px; font-size:0.75rem; margin-right:4px;" onclick="forceAudit('${type}', ${id}, 'approved')">核准</button>`;
-                buttons += `<button class="btn btn-delete" style="padding:4px 8px; font-size:0.75rem;" onclick="forceAudit('${type}', ${id}, 'rejected')">退件</button>`;
+                buttons += `<button class="btn btn-sm btn-outline-success fw-bold me-1" onclick="forceAudit('${type}', ${id}, 'approved')">核准</button>`;
+                buttons += `<button class="btn btn-sm btn-outline-danger fw-bold" onclick="forceAudit('${type}', ${id}, 'rejected')">退件</button>`;
             } else if (currentStatus === 'approved') {
-                // 🔥 開放：已核准的單據，管理員依然可以強制退件 (後端 API 會自動處理時數回收)
-                buttons += `<button class="btn btn-delete" style="padding:4px 8px; font-size:0.75rem;" onclick="forceAudit('${type}', ${id}, 'rejected')">強制退件</button>`;
+                buttons += `<button class="btn btn-sm btn-outline-danger fw-bold" onclick="forceAudit('${type}', ${id}, 'rejected')">強制退件</button>`;
             } else {
-                buttons = '<span style="color:#D1D5DB; font-size:0.8rem;">無</span>';
+                buttons = '<span class="text-muted small">無</span>';
             }
             return buttons;
         }
 
         async function forceAudit(type, id, newStatus) {
             const actionName = newStatus === 'approved' ? '核准' : '退件';
-            if (!confirm(`系統確認：確定要由管理員強制「${actionName}」這筆紀錄嗎？\n(系統將自動發送 LINE 通知給員工)`)) return;
+            if (!confirm(`系統確認：確定要執行「${actionName}」操作嗎？\n(系統將自動回收/發放時數，並通知員工)`)) return;
             try {
                 const res = await fetch('admin_api.php?action=force_audit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: type, id: id, status: newStatus }) });
                 const json = await res.json();
                 if (json.status === 'success') { alert("系統提示：" + json.message); loadRecords(); loadDashboard(); } 
-                else alert("系統錯誤：" + json.message);
-            } catch (err) { alert("系統提示：更新失敗"); }
+                else alert("操作失敗：" + json.message);
+            } catch (err) { alert("系統錯誤，無法連線。"); }
         }
 
         async function loadDashboard() {
@@ -275,9 +385,11 @@ if (empty($_SESSION['admin_logged_in'])) {
                 const res = await fetch('admin_api.php?action=dashboard'); const json = await res.json();
                 if (json.status === 'success') {
                     const data = json.data;
-                    document.getElementById('dashTotalEmp').innerText = data.total_emp; document.getElementById('dashClockin').innerText = data.clock_in_count;
-                    document.getElementById('dashPending').innerText = data.total_pending; document.getElementById('dashLeaveCount').innerText = data.leave_count;
-                    document.getElementById('dashLeaveList').innerHTML = data.leaves_today.length > 0 ? data.leaves_today.map(l => `• ${l.name} (${l.leave_type})`).join('<br>') : "今日全體出勤";
+                    document.getElementById('dashTotalEmp').innerText = data.total_emp + " 人"; 
+                    document.getElementById('dashClockin').innerText = data.clock_in_count + " 人";
+                    document.getElementById('dashPending').innerText = data.total_pending + " 筆"; 
+                    document.getElementById('dashLeaveCount').innerText = data.leave_count + " 人";
+                    document.getElementById('dashLeaveList').innerHTML = data.leaves_today.length > 0 ? data.leaves_today.map(l => `- ${l.name} (${l.leave_type})`).join('<br>') : "全體出勤正常";
                 }
             } catch (err) { console.error(err); }
         }
@@ -293,125 +405,142 @@ if (empty($_SESSION['admin_logged_in'])) {
                     if (start > end) return alert("系統提示：起始日期不能晚於結束日期。");
                     url += `&start=${start}&end=${end}`;
                 }
-                const titleSuffix = (start && end) ? ` <span style="font-size:0.85rem; color:var(--text-sub); font-weight:normal;">(${start} 至 ${end})</span>` : ' <span style="font-size:0.85rem; color:var(--text-sub); font-weight:normal;">(最新 100 筆)</span>';
-                document.getElementById('titleClockin').innerHTML = '打卡紀錄' + titleSuffix; document.getElementById('titleLeave').innerHTML = '假單紀錄' + titleSuffix; document.getElementById('titleOvertime').innerHTML = '加班紀錄' + titleSuffix;
                 const res = await fetch(url); const json = await res.json();
                 if (json.status === 'success') {
-                    document.getElementById('recClockinBody').innerHTML = json.data.clockins.map(r => `<tr><td><b style="color:var(--text-main);">${r.user_name}</b></td><td>${r.mode}</td><td style="font-family:monospace">${r.clock_time}</td><td>${getStatusBadge(r.status)}</td><td>${getStatusBadge(r.approval_status)}</td><td>${getActionButtons('clockin', r.id, r.approval_status)}</td></tr>`).join('') || '<tr><td colspan="6" align="center" style="color:#6B7280; padding:20px;">無資料</td></tr>';
-                    document.getElementById('recLeaveBody').innerHTML = json.data.leaves.map(r => `<tr><td><b style="color:var(--text-main);">${r.user_name}</b></td><td>${r.leave_type}</td><td style="font-family:monospace">${r.start_at}</td><td style="font-family:monospace">${r.end_at}</td><td>${getStatusBadge(r.status)}</td><td>${getActionButtons('leave', r.id, r.status)}</td></tr>`).join('') || '<tr><td colspan="6" align="center" style="color:#6B7280; padding:20px;">無資料</td></tr>';
-                    document.getElementById('recOvertimeBody').innerHTML = json.data.overtimes.map(r => `<tr><td><b style="color:var(--text-main);">${r.user_name}</b></td><td style="font-family:monospace">${r.start_at}</td><td style="font-family:monospace">${r.end_at}</td><td>${r.hours}h</td><td>${getStatusBadge(r.status)}</td><td>${getActionButtons('overtime', r.id, r.status)}</td></tr>`).join('') || '<tr><td colspan="6" align="center" style="color:#6B7280; padding:20px;">無資料</td></tr>';
+                    const emptyRow = '<tr><td colspan="6" align="center" class="text-muted py-4">查無紀錄</td></tr>';
+                    document.getElementById('recClockinBody').innerHTML = json.data.clockins.map(r => `<tr><td><span class="fw-bold text-dark">${r.user_name}</span></td><td>${r.mode}</td><td class="font-monospace text-muted">${r.clock_time}</td><td>${getStatusBadge(r.status)}</td><td>${getStatusBadge(r.approval_status)}</td><td>${getActionButtons('clockin', r.id, r.approval_status)}</td></tr>`).join('') || emptyRow;
+                    document.getElementById('recLeaveBody').innerHTML = json.data.leaves.map(r => `<tr><td><span class="fw-bold text-dark">${r.user_name}</span></td><td>${r.leave_type}</td><td class="font-monospace text-muted">${r.start_at}</td><td class="font-monospace text-muted">${r.end_at}</td><td>${getStatusBadge(r.status)}</td><td>${getActionButtons('leave', r.id, r.status)}</td></tr>`).join('') || emptyRow;
+                    document.getElementById('recOvertimeBody').innerHTML = json.data.overtimes.map(r => `<tr><td><span class="fw-bold text-dark">${r.user_name}</span></td><td class="font-monospace text-muted">${r.start_at}</td><td class="font-monospace text-muted">${r.end_at}</td><td class="fw-bold">${r.hours}h</td><td>${getStatusBadge(r.status)}</td><td>${getActionButtons('overtime', r.id, r.status)}</td></tr>`).join('') || emptyRow;
                 }
             } catch (err) { console.error(err); }
         }
 
-        // 1. 更新員工列表渲染 (加入在職/離職狀態與封存按鈕)
         async function loadUsers() {
             const res = await fetch('admin_api.php?action=list'); const json = await res.json();
             if (json.status === 'success') {
                 allUsers = json.data;
                 document.getElementById('userTableBody').innerHTML = json.data.map(u => {
                     const isArchived = u.is_archived == 1;
-                    const statusHtml = isArchived ? '<span class="badge badge-cancelled">已離職</span>' : '<span class="badge badge-approved">在職</span>';
-                    const opacity = isArchived ? '0.6' : '1'; // 離職者整列變半透明
-                    const resignText = isArchived && u.resign_date ? `<br><small style="color:#ef4444;">離職: ${u.resign_date}</small>` : '';
+                    const statusHtml = isArchived ? '<span class="badge bg-secondary">已離職</span>' : '<span class="badge bg-success">在職</span>';
+                    const opacityClass = isArchived ? 'opacity-50' : '';
+                    const resignText = isArchived && u.resign_date ? `<br><small class="text-danger">離職日: ${u.resign_date}</small>` : '';
 
                     let buttons = '';
                     if (isArchived) {
-                        // 已離職人員只能刪除或保留
-                        buttons = `<button class="btn btn-delete" onclick="deleteUser(${u.id}, '${u.name}')">刪除</button>`;
+                        buttons = `<button class="btn btn-sm btn-outline-danger fw-bold" onclick="deleteUser(${u.id}, '${u.name}')">刪除</button>`;
                     } else {
-                        // 在職人員有黃色的「封存」按鈕
                         buttons = `
-                            <button class="btn btn-edit" onclick='openModal("edit", ${JSON.stringify(u)})'>編輯</button>
-                            <button class="btn btn-cancel" onclick="archiveUser(${u.id}, '${u.name}')" style="background:#fff3cd; color:#856404; border-color:#ffeeba; margin: 0 4px;">封存</button>
-                            <button class="btn btn-delete" onclick="deleteUser(${u.id}, '${u.name}')">刪除</button>
+                            <button class="btn btn-sm btn-outline-primary fw-bold" onclick='openUserModal("edit", ${JSON.stringify(u)})'>編輯</button>
+                            <button class="btn btn-sm btn-outline-secondary fw-bold mx-1" onclick="archiveUser(${u.id}, '${u.name}')">封存(離職)</button>
+                            <button class="btn btn-sm btn-outline-danger fw-bold" onclick="deleteUser(${u.id}, '${u.name}')">刪除</button>
                         `;
                     }
 
-                    return `<tr style="opacity: ${opacity};">
-                        <td>${statusHtml} <span style="color:#6B7280; font-size:0.8rem;">#${u.id}</span></td>
-                        <td style="font-weight:600;">${u.name} ${resignText}</td>
-                        <td style="color:#6B7280; font-family:monospace;">${u.user_id}</td>
+                    return `<tr class="${opacityClass}">
+                        <td>${statusHtml} <span class="text-muted small ms-1">#${u.id}</span></td>
+                        <td><span class="fw-bold text-dark">${u.name}</span> ${resignText}</td>
+                        <td class="font-monospace text-muted">${u.user_id}</td>
                         <td>${u.start_date || '-'}</td>
                         <td>${buttons}</td>
                     </tr>`;
-                }).join('') || '<tr><td colspan="5" align="center" style="color:#6B7280; padding:20px;">無資料</td></tr>';
+                }).join('') || '<tr><td colspan="5" align="center" class="text-muted py-4">無資料</td></tr>';
                 populateDropdowns();
             }
         }
 
-        // 2. 🔥 新增：處理點擊「封存」按鈕的輸入彈窗
         async function archiveUser(id, name) {
-            // 預設帶入今天的台灣日期 (YYYY-MM-DD)
             const now = new Date();
             const defaultDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            const resignDate = prompt(`【員工離職封存作業】\n請輸入「${name}」的最後在職日 (格式：YYYY-MM-DD)：`, defaultDate);
             
-            // 彈出視窗讓 HR 編輯離職日期
-            const resignDate = prompt(`【員工離職/退休封存作業】\n請輸入「${name}」的最後在職日：`, defaultDate);
-            
-            if (!resignDate) return; // 按下取消則不執行
-
-            if (!confirm(`系統確認：確定要將「${name}」變更為離職封存狀態嗎？\n\n⚠️ 注意：系統將會自動解除該員工的所有直屬主管與下屬設定，避免簽核流程卡死。`)) return;
+            if (!resignDate) return; 
+            if (!confirm(`系統確認：確定將「${name}」變更為離職封存狀態？\n\n系統將會自動解除該員工的主管與下屬權限。`)) return;
 
             try {
                 const res = await fetch(`admin_api.php?action=archive`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ id: id, resign_date: resignDate })
                 });
                 const json = await res.json();
-                if (json.status === 'success') {
-                    alert("系統提示：" + json.message);
-                    loadUsers();
-                    if (typeof loadDashboard === 'function') loadDashboard(); // 更新儀表板在職人數
-                } else {
-                    alert("系統錯誤：" + json.message);
-                }
-            } catch (e) {
-                alert("系統錯誤：封存通訊失敗");
-            }
+                if (json.status === 'success') { alert("系統提示：" + json.message); loadUsers(); loadDashboard(); } 
+                else { alert("操作失敗：" + json.message); }
+            } catch (e) { alert("連線失敗，請重試。"); }
         }
 
         async function loadBalances() {
             const res = await fetch('admin_api.php?action=list'); const json = await res.json();
             if (json.status === 'success') {
-                document.getElementById('balanceTableBody').innerHTML = json.data.map(u => `<tr><td><b style="color:var(--text-main);">${u.name}</b></td><td style="font-family:monospace; font-size:1rem; color:var(--primary); font-weight:bold;">${u.annual_leave_hours || 0}</td><td style="font-family:monospace; font-size:1rem; color:#4338ca; font-weight:bold;">${u.comp_leave_hours || 0}</td><td style="font-family:monospace;">${u.used_personal_hours || 0}</td><td style="font-family:monospace;">${u.used_sick_hours || 0}</td><td><button class="btn btn-edit" onclick='openHoursModal(${JSON.stringify(u)})'>手動校正</button></td></tr>`).join('') || '<tr><td colspan="6" align="center" style="color:#6B7280; padding:20px;">無資料</td></tr>';
+                document.getElementById('balanceTableBody').innerHTML = json.data.map(u => `<tr><td><span class="fw-bold text-dark">${u.name}</span></td><td class="font-monospace text-primary fw-bold">${u.annual_leave_hours || 0}</td><td class="font-monospace" style="color: #6610f2; font-weight: bold;">${u.comp_leave_hours || 0}</td><td class="font-monospace text-muted">${u.used_personal_hours || 0}</td><td class="font-monospace text-muted">${u.used_sick_hours || 0}</td><td><button class="btn btn-sm btn-outline-dark fw-bold" onclick='openHoursForm(${JSON.stringify(u)})'>手動校正</button></td></tr>`).join('') || '<tr><td colspan="6" align="center" class="text-muted py-4">無資料</td></tr>';
             }
         }
 
-        function openHoursModal(userData) {
-            document.getElementById('hoursEditId').value = userData.id; document.getElementById('hoursUserName').value = userData.name;
-            document.getElementById('valAnnual').value = userData.annual_leave_hours || 0; document.getElementById('valComp').value = userData.comp_leave_hours || 0;
-            document.getElementById('valPersonal').value = userData.used_personal_hours || 0; document.getElementById('valSick').value = userData.used_sick_hours || 0;
-            document.getElementById('hoursModal').style.display = 'flex';
+        function openHoursForm(userData) {
+            document.getElementById('hoursEditId').value = userData.id; 
+            document.getElementById('hoursUserName').value = userData.name;
+            document.getElementById('valAnnual').value = userData.annual_leave_hours || 0; 
+            document.getElementById('valComp').value = userData.comp_leave_hours || 0;
+            document.getElementById('valPersonal').value = userData.used_personal_hours || 0; 
+            document.getElementById('valSick').value = userData.used_sick_hours || 0;
+            bsHoursModal.show();
         }
-        function closeHoursModal() { document.getElementById('hoursModal').style.display = 'none'; }
 
         async function saveHours() {
             const payload = { id: document.getElementById('hoursEditId').value, annual: document.getElementById('valAnnual').value, comp: document.getElementById('valComp').value, personal: document.getElementById('valPersonal').value, sick: document.getElementById('valSick').value };
             const res = await fetch('admin_api.php?action=update_hours', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-            const json = await res.json(); if (json.status === 'success') { alert("系統提示：" + json.message); closeHoursModal(); loadBalances(); } else alert("系統錯誤：" + json.message);
+            const json = await res.json(); 
+            if (json.status === 'success') { alert("更新成功"); bsHoursModal.hide(); loadBalances(); } else alert("錯誤：" + json.message);
         }
 
-        function openModal(mode, userData = null) { currentMode = mode; document.getElementById('modalTitle').innerText = mode === 'add' ? "新增員工資料" : "編輯員工資料"; document.getElementById('editId').value = mode === 'edit' ? userData.id : ""; document.getElementById('userName').value = mode === 'edit' ? userData.name : ""; document.getElementById('userLineId').value = mode === 'edit' ? userData.user_id : ""; document.getElementById('userStartDate').value = mode === 'edit' ? (userData.start_date || "") : ""; document.getElementById('userModal').style.display = 'flex'; }
-        function closeModal() { document.getElementById('userModal').style.display = 'none'; }
-        async function saveUser() { const payload = { id: document.getElementById('editId').value, name: document.getElementById('userName').value, user_id: document.getElementById('userLineId').value, start_date: document.getElementById('userStartDate').value }; const res = await fetch(`admin_api.php?action=${currentMode === 'add' ? 'add' : 'edit'}`, { method: currentMode === 'add' ? 'POST' : 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); const json = await res.json(); if (json.status === 'success') { alert("系統提示：" + json.message); closeModal(); loadUsers(); } else alert("系統錯誤：" + json.message); }
-        async function deleteUser(id, name) { if (!confirm(`系統確認：確定刪除員工「${name}」？此操作無法復原。`)) return; const res = await fetch(`admin_api.php?action=delete&id=${id}`, { method: 'DELETE' }); const json = await res.json(); if (json.status === 'success') loadUsers(); else alert("系統錯誤：" + json.message); }
+        function openUserModal(mode, userData = null) { 
+            currentMode = mode; 
+            document.getElementById('modalTitle').innerText = mode === 'add' ? "新增員工資料" : "編輯員工資料"; 
+            document.getElementById('editId').value = mode === 'edit' ? userData.id : ""; 
+            document.getElementById('userName').value = mode === 'edit' ? userData.name : ""; 
+            document.getElementById('userLineId').value = mode === 'edit' ? userData.user_id : ""; 
+            document.getElementById('userStartDate').value = mode === 'edit' ? (userData.start_date || "") : ""; 
+            bsUserModal.show(); 
+        }
+
+        async function saveUser() { 
+            const payload = { id: document.getElementById('editId').value, name: document.getElementById('userName').value, user_id: document.getElementById('userLineId').value, start_date: document.getElementById('userStartDate').value }; 
+            const res = await fetch(`admin_api.php?action=${currentMode === 'add' ? 'add' : 'edit'}`, { method: currentMode === 'add' ? 'POST' : 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); 
+            const json = await res.json(); 
+            if (json.status === 'success') { alert("儲存成功"); bsUserModal.hide(); loadUsers(); } else alert("錯誤：" + json.message); 
+        }
+
+        async function deleteUser(id, name) { 
+            if (!confirm(`系統確認：確定徹底刪除員工「${name}」？此操作無法復原。`)) return; 
+            const res = await fetch(`admin_api.php?action=delete&id=${id}`, { method: 'DELETE' }); 
+            const json = await res.json(); 
+            if (json.status === 'success') loadUsers(); else alert("錯誤：" + json.message); 
+        }
 
         function populateDropdowns() { 
             let ops = '<option value="">-- 請選擇 --</option>'; 
-            [...allUsers]
-                .filter(u => u.is_archived != 1) // 🔥 過濾掉已封存(離職)的人員
-                .sort((a,b)=>a.name.localeCompare(b.name))
-                .forEach(u => ops += `<option value="${u.user_id}">${u.name}</option>`); 
+            [...allUsers].filter(u => u.is_archived != 1).sort((a,b)=>a.name.localeCompare(b.name)).forEach(u => ops += `<option value="${u.user_id}">${u.name}</option>`); 
             document.getElementById('selEmployee').innerHTML = ops; 
             document.getElementById('selSupervisor').innerHTML = ops; 
         }
-        async function loadSupervisors() { const res = await fetch('admin_api.php?action=supervisor_list'); const json = await res.json(); if (json.status === 'success') document.getElementById('supTableBody').innerHTML = json.data.map(rel => `<tr><td style="font-weight:600;">${rel.sup_name || '查無此人'}</td><td>${rel.emp_name || '查無此人'}</td><td><button class="btn btn-delete" onclick="removeSupervisor('${rel.user_id}', '${rel.supervisor_id}')">解除設定</button></td></tr>`).join('') || '<tr><td colspan="3" align="center" style="color:#6B7280; padding:20px;">無資料</td></tr>'; }
-        async function assignSupervisor() { const empId = document.getElementById('selEmployee').value; const supId = document.getElementById('selSupervisor').value; if (!empId || !supId) return alert("系統提示：請選擇員工與主管。"); const res = await fetch('admin_api.php?action=assign_supervisor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: empId, supervisor_id: supId }) }); const json = await res.json(); if (json.status === 'success') { alert("系統提示：" + json.message); loadSupervisors(); } else alert("系統錯誤：" + json.message); }
-        async function removeSupervisor(empId, supId) { if (!confirm("系統確認：確定解除此從屬關係設定嗎？")) return; const res = await fetch(`admin_api.php?action=remove_supervisor&user_id=${empId}&supervisor_id=${supId}`, { method: 'DELETE' }); const json = await res.json(); if (json.status === 'success') loadSupervisors(); }
 
-        window.onload = loadDashboard;
+        async function loadSupervisors() { 
+            const res = await fetch('admin_api.php?action=supervisor_list'); const json = await res.json(); 
+            if (json.status === 'success') document.getElementById('supTableBody').innerHTML = json.data.map(rel => `<tr><td class="fw-bold text-dark">${rel.sup_name || '查無此人'}</td><td>${rel.emp_name || '查無此人'}</td><td><button class="btn btn-sm btn-outline-danger fw-bold" onclick="removeSupervisor('${rel.user_id}', '${rel.supervisor_id}')">解除權限</button></td></tr>`).join('') || '<tr><td colspan="3" align="center" class="text-muted py-4">無資料</td></tr>'; 
+        }
+
+        async function assignSupervisor() { 
+            const empId = document.getElementById('selEmployee').value; const supId = document.getElementById('selSupervisor').value; 
+            if (!empId || !supId) return alert("請完整選擇員工與主管。"); 
+            const res = await fetch('admin_api.php?action=assign_supervisor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: empId, supervisor_id: supId }) }); 
+            const json = await res.json(); 
+            if (json.status === 'success') { alert("指派成功"); loadSupervisors(); } else alert("錯誤：" + json.message); 
+        }
+
+        async function removeSupervisor(empId, supId) { 
+            if (!confirm("系統確認：確定解除此管理權限設定嗎？")) return; 
+            const res = await fetch(`admin_api.php?action=remove_supervisor&user_id=${empId}&supervisor_id=${supId}`, { method: 'DELETE' }); 
+            const json = await res.json(); 
+            if (json.status === 'success') loadSupervisors(); 
+        }
     </script>
 </body>
 </html>

@@ -128,15 +128,18 @@ $liffId = getenv('MENU_LIFF_ID');
             </div>
             <div class="chevron">›</div>
         </a>
-        <a href="admin_users.php" class="menu-item">
+
+        <a href="#" onclick="openExternalAdmin(event)" class="menu-item">
             <div class="icon-box">
                 <svg viewBox="0 0 24 24"><path d="M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm-2 14l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/></svg>
             </div>
             <div class="info">
                 <h2>HR管理中心</h2>
-                <p>管理員工資料、設定主管與審核流程。</p>
+                <p>管理員工資料、設定主管與審核流程。(將以獨立網頁開啟)</p>
             </div>
-            <div class="chevron">›</div>
+            <div class="chevron">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+            </div>
         </a>
     </div>
 
@@ -165,6 +168,19 @@ $liffId = getenv('MENU_LIFF_ID');
         }).catch(err => {
             console.error("LIFF Initialization failed", err);
         });
+
+        function openExternalAdmin(e) {
+            e.preventDefault();
+            const baseUrl = window.location.href.split('?')[0].replace('menu.php', '');
+            const targetUrl = baseUrl + 'admin_users.php';
+            
+            // 呼叫 LINE LIFF API，強制開啟外部系統瀏覽器 (Chrome / Safari)
+            if (liff.isInClient()) {
+                liff.openWindow({ url: targetUrl, external: true });
+            } else {
+                window.open(targetUrl, '_blank');
+            }
+        }
     </script>
 </body>
 </html>
