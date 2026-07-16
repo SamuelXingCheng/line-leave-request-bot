@@ -95,6 +95,19 @@ $liffId = getenv('MENU_LIFF_ID');
             </div>
             <div class="chevron">›</div>
         </a>
+
+        <a href="#" onclick="openExternalAdmin(event)" class="menu-item">
+            <div class="icon-box">
+                <svg viewBox="0 0 24 24"><path d="M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm-2 14l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/></svg>
+            </div>
+            <div class="info">
+                <h2>HR管理中心</h2>
+                <p>管理員工資料、設定主管與審核流程。(將以獨立網頁開啟)</p>
+            </div>
+            <div class="chevron">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+            </div>
+        </a>
         
         <a href="revoke_form.php" class="menu-item">
             <div class="icon-box">
@@ -118,6 +131,39 @@ $liffId = getenv('MENU_LIFF_ID');
             <div class="chevron">›</div>
         </a>
 
+        <a href="leave_form.php" class="menu-item">
+            <div class="icon-box">
+                <svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+            </div>
+            <div class="info">
+                <h2>線上請假申請</h2>
+                <p>直接於網頁填寫並送出請假單，系統將自動精算時數並產生簽核通知。</p>
+            </div>
+            <div class="chevron">›</div>
+        </a>
+
+        <a href="overtime_form.php" class="menu-item">
+            <div class="icon-box">
+                <svg viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
+            </div>
+            <div class="info">
+                <h2>線上加班申請</h2>
+                <p>填寫加班時段與工作內容，核准後時數將自動撥入個人補休存摺。</p>
+            </div>
+            <div class="chevron">›</div>
+        </a>
+
+        <a href="attendance_correction.php" class="menu-item">
+            <div class="icon-box">
+                <svg viewBox="0 0 24 24"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z"/></svg>
+            </div>
+            <div class="info">
+                <h2>打卡異常補登</h2>
+                <p>針對漏打卡或時段異常進行調整申請，維持個人出勤紀錄完整性。</p>
+            </div>
+            <div class="chevron">›</div>
+        </a>
+
         <a href="query_colleagues.php" class="menu-item">
             <div class="icon-box">
                 <svg viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
@@ -127,19 +173,6 @@ $liffId = getenv('MENU_LIFF_ID');
                 <p>確認團隊成員今日之出勤狀態與預計返崗時間。</p>
             </div>
             <div class="chevron">›</div>
-        </a>
-
-        <a href="#" onclick="openExternalAdmin(event)" class="menu-item">
-            <div class="icon-box">
-                <svg viewBox="0 0 24 24"><path d="M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm-2 14l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/></svg>
-            </div>
-            <div class="info">
-                <h2>HR管理中心</h2>
-                <p>管理員工資料、設定主管與審核流程。(將以獨立網頁開啟)</p>
-            </div>
-            <div class="chevron">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
-            </div>
         </a>
     </div>
 
