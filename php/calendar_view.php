@@ -188,11 +188,11 @@ if (!$liffId) { die("錯誤：請在 .env 檔案中設定 CALENDAR_LIFF_ID"); }
     
     <div class="legend">
         <div class="legend-item"><div class="legend-icon l-green"></div>正常</div>
-        <div class="legend-item"><div class="legend-icon l-blue"></div>請假</div>
-        <div class="legend-item"><div class="legend-icon l-orange"></div>補打卡</div>
-        <div class="legend-item"><div class="legend-icon l-red"></div>待審核</div>
+        <div class="legend-item"><div class="legend-icon l-blue"></div>請假(已准)</div>
+        <div class="legend-item"><div class="legend-icon l-gray"></div>請假(待審)</div>
         <div class="legend-item"><div class="legend-icon l-purple"></div>加班</div>
-        <div class="legend-item"><div class="legend-icon l-gray"></div>待審核</div>
+        <div class="legend-item"><div class="legend-icon l-orange"></div>補打卡</div>
+        <div class="legend-item"><div class="legend-icon l-red"></div>打卡異常</div>
     </div>
 </div>
 
@@ -367,9 +367,12 @@ if (!$liffId) { die("錯誤：請在 .env 檔案中設定 CALENDAR_LIFF_ID"); }
         } else {
             const typeMap = { 'attendance': '打卡', 'leave': '請假', 'overtime': '加班' };
             const statusMap = {
-                'green': '正常', 'red': '待審核', 
-                'orange': '補打卡', 'blue': '請假', 'purple': '加班',
-                'gray': '假單審核中'
+                'green': '正常', 
+                'red': '打卡異常/待核', 
+                'orange': '補卡(已核准)', 
+                'blue': '請假(已核准)', 
+                'gray': '請假(待審核)',
+                'purple': '加班(已核准)'
             };
 
             displayEvents.forEach(evt => {
