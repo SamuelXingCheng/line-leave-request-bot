@@ -228,6 +228,13 @@ if (empty($_SESSION['admin_logged_in'])) {
 
                     <div class="filter-box">
                         <div class="row g-3 align-items-end">
+                            <!-- 新增員工篩選器 -->
+                            <div class="col-md-2">
+                                <label class="form-label small fw-bold text-muted">員工姓名</label>
+                                <select id="filterEmp" class="form-select border-secondary bg-dark text-white">
+                                    <option value="all">全體員工</option>
+                                </select>
+                            </div>
                             <div class="col-md-2">
                                 <label class="form-label small fw-bold text-muted">開始日期</label>
                                 <input type="date" id="filterStart" class="form-control border-secondary bg-dark text-white">
@@ -236,18 +243,18 @@ if (empty($_SESSION['admin_logged_in'])) {
                                 <label class="form-label small fw-bold text-muted">結束日期</label>
                                 <input type="date" id="filterEnd" class="form-control border-secondary bg-dark text-white">
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-md-2">
                                 <label class="form-label small fw-bold text-muted">單據狀態</label>
                                 <select id="filterStatus" class="form-select border-secondary bg-dark text-white">
                                     <option value="all">所有狀態</option>
                                     <option value="pending">待審核</option>
-                                    <option value="approved">已核准 / 正常</option>
-                                    <option value="rejected">已退件 / 異常</option>
+                                    <option value="approved">已核准/正常</option>
+                                    <option value="rejected">已退件/異常</option>
                                 </select>
                             </div>
-                            <div class="col-md-5 d-flex gap-2">
-                                <button class="btn btn-primary px-4 fw-bold" onclick="loadRecords()">查詢與篩選</button>
-                                <button class="btn btn-outline-secondary fw-bold" onclick="resetFilter()">重置條件</button>
+                            <div class="col-md-4 d-flex gap-2">
+                                <button class="btn btn-primary px-3 fw-bold" onclick="loadRecords()">查詢與篩選</button>
+                                <button class="btn btn-outline-secondary fw-bold" onclick="resetFilter()">重置</button>
                             </div>
                         </div>
                     </div>
@@ -495,7 +502,7 @@ if (empty($_SESSION['admin_logged_in'])) {
             return map[status] || `<span class="badge border border-secondary text-light px-2 py-1">${status}</span>`;
         }
 
-        function getActionButtons(type, id, currentStatus) {
+        function getActionButtons(type, id, currentStatus, r = null) {
             let buttons = '';
             if (currentStatus === 'pending') {
                 buttons += `<button class="btn btn-sm btn-outline-success fw-bold me-1" onclick="forceAudit('${type}', ${id}, 'approved')">核准</button>`;
@@ -503,8 +510,15 @@ if (empty($_SESSION['admin_logged_in'])) {
             } else if (currentStatus === 'approved') {
                 buttons += `<button class="btn btn-sm btn-outline-danger fw-bold" onclick="forceAudit('${type}', ${id}, 'rejected')">強制退件</button>`;
             } else if (currentStatus === 'missing_punch') {
-                // 🔥 新增：未打卡的虛擬紀錄無法直接核准，只能等員工補卡
                 buttons = '<span class="text-danger small fw-bold">等待員工補登</span>';
+            } else if (currentStatus === 'rejected') {
+                // 💡 修正：退件後，若為打卡紀錄則給予手動補卡按鈕
+                if (type === 'clockin' && r && r.clock_time) {
+                    const dStr = r.clock_time.substring(0, 10);
+                    buttons = `<button class="btn btn-sm btn-outline-info fw-bold" onclick="adminManualClockin('${r.user_name}', '${dStr}', '${r.mode}')">手動補卡</button>`;
+                } else {
+                    buttons = '<span class="text-muted small">無操作</span>';
+                }
             } else {
                 buttons = '<span class="text-muted small">無操作</span>';
             }
@@ -675,6 +689,7 @@ if (empty($_SESSION['admin_logged_in'])) {
                 let start = startInput.value; 
                 let end = endInput.value;
                 const statusFilter = document.getElementById('filterStatus').value;
+                const empFilter = document.getElementById('filterEmp').value;
                 
                 const now = new Date();
                 const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -692,86 +707,123 @@ if (empty($_SESSION['admin_logged_in'])) {
                 const json = await res.json();
                 
                 if (json.status === 'success') {
+                    // 前端即時狀態篩選器
+                    const filterByStatus = (record, type) => {
+                        if (statusFilter === 'all') return true;
+                        const recStatus = (type === 'clockin') ? record.approval_status : record.status;
+                        const secondaryStatus = record.status;
+                        if (statusFilter === 'pending') return recStatus === 'pending' || secondaryStatus === 'pending' || recStatus === 'missing_punch';
+                        if (statusFilter === 'approved') return recStatus === 'approved' || secondaryStatus === 'success' || secondaryStatus === 'normal';
+                        if (statusFilter === 'rejected') return recStatus === 'rejected' || secondaryStatus === 'fail' || secondaryStatus === 'cancelled';
+                        return true;
+                    };
 
-                    // ==========================================
-                    // 🔥 核心修改：動態比對出「未打卡」人員
-                    // ==========================================
-                    const activeUsers = allUsers.filter(u => u.is_archived != 1 && u.is_exempt != 1);
-                    // 如果沒有選日期，預設只查「今天」的未打卡（避免查出無窮無盡的歷史資料）
-                    let checkStartStr = start || todayStr;
-                    let checkEndStr = end || todayStr;
-                    
-                    let curDate = new Date(checkStartStr + 'T00:00:00');
-                    let endDateObj = new Date(checkEndStr + 'T00:00:00');
-                    
-                    // 為了效能與合理性，最多只回推比對 31 天內的未打卡
-                    const diffDays = Math.ceil(Math.abs(endDateObj - curDate) / (1000 * 60 * 60 * 24));
-                    if (diffDays <= 31) {
+                    const holidays = json.data.holidays || [];
+                    const filteredLeaves = json.data.leaves.filter(r => filterByStatus(r, 'leave') && (empFilter === 'all' || r.user_name === empFilter));
+                    const filteredOvertimes = json.data.overtimes.filter(r => filterByStatus(r, 'overtime') && (empFilter === 'all' || r.user_name === empFilter));
+
+                    let clockinHtml = '';
+                    const emptyRow = '<tr><td colspan="6" align="center" class="text-muted py-4">查無符合條件的紀錄</td></tr>';
+
+                    if (empFilter !== 'all' && start && end) {
+                        // 🟢 【個人專屬模式】: 逐日展開 1 號到 30 號 (強制要求上下班兩次)
+                        let curDate = new Date(start + 'T00:00:00');
+                        let endDateObj = new Date(end + 'T00:00:00');
+
                         while (curDate <= endDateObj) {
                             const y = curDate.getFullYear();
                             const m = String(curDate.getMonth() + 1).padStart(2, '0');
                             const d = String(curDate.getDate()).padStart(2, '0');
                             const dStr = `${y}-${m}-${d}`;
-                            
-                            // 找出當天「有任何打卡紀錄」的人
-                            const clockedInNames = new Set(
-                                json.data.clockins.filter(c => c.clock_time.startsWith(dStr)).map(c => c.user_name)
-                            );
 
-                            // 找出「在職，但今天名單上沒有他」的人
-                            activeUsers.forEach(u => {
-                                if (!clockedInNames.has(u.name)) {
-                                    // 把他塞進打卡紀錄列表中，偽裝成一筆未打卡異常
-                                    json.data.clockins.push({
-                                        id: 'N/A', // 虛擬的 ID
-                                        user_name: u.name,
-                                        mode: '系統偵測',
-                                        clock_time: `${dStr} 尚未打卡`,
-                                        status: 'fail',
-                                        approval_status: 'missing_punch' // 特殊標記
-                                    });
+                            const isHoliday = holidays.find(h => h.date === dStr);
+                            const dayRecords = json.data.clockins.filter(c => c.user_name === empFilter && c.clock_time.startsWith(dStr));
+
+                            // 1. 渲染當天已有的打卡紀錄
+                            dayRecords.forEach(r => {
+                                if(filterByStatus(r, 'clockin')) {
+                                    // 💡 修正一：如果被主管退件，強制將左側系統狀態顯示為「異常(fail)」
+                                    const displayStatus = (r.approval_status === 'rejected') ? 'fail' : r.status;
+                                    
+                                    clockinHtml += `<tr><td><span class="fw-bold text-white">${r.user_name}</span></td><td>${r.mode}</td><td class="font-monospace text-secondary">${r.clock_time}</td><td>${getStatusBadge(displayStatus)}</td><td>${getStatusBadge(r.approval_status)}</td><td>${getActionButtons('clockin', r.id, r.approval_status, r)}</td></tr>`;
                                 }
                             });
+
+                            // 2. 判斷是否為休假日
+                            const isWeekend = (curDate.getDay() === 0 || curDate.getDay() === 6);
+                            const isWorkday = isHoliday && isHoliday.type === 'workday';
+                            const isOffDay = (isWeekend && !isWorkday) || (isHoliday && isHoliday.type === 'holiday');
+
+                            // 💡 修正二：計算版面佔用次數（退件的紀錄本身已經有補卡按鈕，也算佔用一個版位）
+                            // 3. 判斷缺卡次數與補卡按鈕
+                            if (!isOffDay) {
+                                // 2 次減去當日所有紀錄數，避免與退件列重複顯示
+                                const missingCount = Math.max(0, 2 - dayRecords.length);
+                                for (let i = 0; i < missingCount; i++) {
+                                    let punchLabel = (dayRecords.length === 0 && i === 0) ? '上班' : '下班';
+                                    clockinHtml += `<tr><td><span class="fw-bold text-white">${empFilter}</span></td><td>系統偵測</td><td class="font-monospace text-secondary">${dStr} 尚未打卡 <span class="text-warning">(${punchLabel}缺卡)</span></td><td><span class="badge bg-danger px-2 py-1">異常</span></td><td><span class="badge bg-danger px-2 py-1">缺卡</span></td><td><button class="btn btn-sm btn-outline-info fw-bold" onclick="adminManualClockin('${empFilter}', '${dStr}', '${punchLabel}')">手動補卡</button></td></tr>`;
+                                }
+                            } else {
+                                // 假日且完全無任何紀錄時，顯示為休假
+                                if (dayRecords.length === 0) {
+                                    const reasonStr = isHoliday ? isHoliday.name : '週末';
+                                    clockinHtml += `<tr><td><span class="fw-bold text-white">${empFilter}</span></td><td>-</td><td class="font-monospace text-danger">${dStr} (休假: ${reasonStr})</td><td>-</td><td>-</td><td>-</td></tr>`;
+                                }
+                            }
                             curDate.setDate(curDate.getDate() + 1);
                         }
+                    } else {
+                        // 🔵 【全體員工/預設平鋪模式】
+                        const filteredClockins = json.data.clockins.filter(r => filterByStatus(r, 'clockin') && (empFilter === 'all' || r.user_name === empFilter));
+                        clockinHtml = filteredClockins.map(r => {
+                            // 同步套用退件即異常的邏輯
+                            const displayStatus = (r.approval_status === 'rejected') ? 'fail' : r.status;
+                            return `<tr><td><span class="fw-bold text-white">${r.user_name}</span></td><td>${r.mode}</td><td class="font-monospace text-secondary">${r.clock_time}</td><td>${getStatusBadge(displayStatus)}</td><td>${getStatusBadge(r.approval_status)}</td><td>${getActionButtons('clockin', r.id, r.approval_status, r)}</td></tr>`;
+                        }).join('');
                     }
-                    
-                    // 將所有紀錄依據時間由新到舊重新排序 (因為我們剛剛塞了新資料進去)
-                    json.data.clockins.sort((a, b) => b.clock_time.localeCompare(a.clock_time));
-                    // ==========================================
 
-
-                    // 前端即時狀態篩選器
-                    const filterByStatus = (record, type) => {
-                        if (statusFilter === 'all') return true;
-                        
-                        const recStatus = (type === 'clockin') ? record.approval_status : record.status;
-                        const secondaryStatus = record.status;
-
-                        if (statusFilter === 'pending') {
-                            // 🔥 修改：當選擇「待審核」時，同時顯示「未打卡 (missing_punch)」的人
-                            return recStatus === 'pending' || secondaryStatus === 'pending' || recStatus === 'missing_punch';
-                        }
-                        if (statusFilter === 'approved') {
-                            return recStatus === 'approved' || secondaryStatus === 'success' || secondaryStatus === 'normal';
-                        }
-                        if (statusFilter === 'rejected') {
-                            return recStatus === 'rejected' || secondaryStatus === 'fail' || secondaryStatus === 'cancelled';
-                        }
-                        return true;
-                    };
-
-                    const filteredClockins = json.data.clockins.filter(r => filterByStatus(r, 'clockin'));
-                    const filteredLeaves = json.data.leaves.filter(r => filterByStatus(r, 'leave'));
-                    const filteredOvertimes = json.data.overtimes.filter(r => filterByStatus(r, 'overtime'));
-
-                    const emptyRow = '<tr><td colspan="6" align="center" class="text-muted py-4">查無符合條件的紀錄</td></tr>';
-                    
-                    document.getElementById('recClockinBody').innerHTML = filteredClockins.map(r => `<tr><td><span class="fw-bold text-white">${r.user_name}</span></td><td>${r.mode}</td><td class="font-monospace text-secondary">${r.clock_time}</td><td>${getStatusBadge(r.status)}</td><td>${getStatusBadge(r.approval_status)}</td><td>${getActionButtons('clockin', r.id, r.approval_status)}</td></tr>`).join('') || emptyRow;
+                    document.getElementById('recClockinBody').innerHTML = clockinHtml || emptyRow;
                     document.getElementById('recLeaveBody').innerHTML = filteredLeaves.map(r => `<tr><td><span class="fw-bold text-white">${r.user_name}</span></td><td>${r.leave_type}</td><td class="font-monospace text-secondary">${r.start_at}</td><td class="font-monospace text-secondary">${r.end_at}</td><td>${getStatusBadge(r.status)}</td><td>${getActionButtons('leave', r.id, r.status)}</td></tr>`).join('') || emptyRow;
                     document.getElementById('recOvertimeBody').innerHTML = filteredOvertimes.map(r => `<tr><td><span class="fw-bold text-white">${r.user_name}</span></td><td class="font-monospace text-secondary">${r.start_at}</td><td class="font-monospace text-secondary">${r.end_at}</td><td class="fw-bold text-info">${r.hours}h</td><td>${getStatusBadge(r.status)}</td><td>${getActionButtons('overtime', r.id, r.status)}</td></tr>`).join('') || emptyRow;
                 }
             } catch (err) { console.error(err); }
+        }
+
+        // 管理員強制手動補卡 (加入類型選擇)
+        async function adminManualClockin(userName, dateStr, defaultMode) {
+            // 第一步：輸入時間
+            const timeStr = prompt(`請輸入 ${userName} 於 ${dateStr} 的補卡時間\n(格式 HH:MM，例如 09:00 或 18:30)：`);
+            if (!timeStr) return;
+            
+            if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(timeStr)) {
+                return alert("時間格式錯誤，請輸入正確的 HH:MM 格式！");
+            }
+
+            // 第二步：選擇類型 (防呆)
+            let modeInput = prompt(`請確認補卡類型 (輸入 1 或 2)：\n1. 上班\n2. 下班`, defaultMode === '下班' ? '2' : '1');
+            if (!modeInput) return;
+            
+            const finalMode = (modeInput === '2' || modeInput === '下班') ? '下班' : '上班';
+            const fullTime = `${dateStr} ${timeStr}:00`;
+            
+            if (!confirm(`確定要為 ${userName} 寫入打卡紀錄：${fullTime} (${finalMode}) 嗎？`)) return;
+
+            try {
+                const res = await fetch('admin_api.php?action=manual_clockin', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_name: userName, clock_time: fullTime, mode: finalMode })
+                });
+                const json = await res.json();
+                if (json.status === 'success') {
+                    alert('手動補卡成功！');
+                    loadRecords(); 
+                } else {
+                    alert('補卡失敗：' + json.message);
+                }
+            } catch (err) {
+                alert('連線失敗，請稍後再試。');
+            }
         }
 
         async function loadUsers() {
@@ -894,9 +946,14 @@ if (empty($_SESSION['admin_logged_in'])) {
 
         function populateDropdowns() { 
             let ops = '<option value="">-- 請選擇 --</option>'; 
-            [...allUsers].filter(u => u.is_archived != 1).sort((a,b)=>a.name.localeCompare(b.name)).forEach(u => ops += `<option value="${u.user_id}">${u.name}</option>`); 
+            let filterOps = '<option value="all">全體員工</option>';
+            [...allUsers].filter(u => u.is_archived != 1).sort((a,b)=>a.name.localeCompare(b.name)).forEach(u => {
+                ops += `<option value="${u.user_id}">${u.name}</option>`;
+                filterOps += `<option value="${u.name}">${u.name}</option>`;
+            }); 
             document.getElementById('selEmployee').innerHTML = ops; 
             document.getElementById('selSupervisor').innerHTML = ops; 
+            if (document.getElementById('filterEmp')) document.getElementById('filterEmp').innerHTML = filterOps;
         }
 
         async function loadSupervisors() { 
@@ -1152,7 +1209,7 @@ if (empty($_SESSION['admin_logged_in'])) {
                             <td>${c.mode}</td>
                             <td class="font-monospace text-secondary">${t}</td>
                             <td>${getStatusBadge(c.approval_status === 'pending' ? 'pending' : c.status)}</td>
-                            <td>${getActionButtons('clockin', c.id, c.approval_status)}</td>
+                            <td>${getActionButtons('clockin', c.id, c.approval_status, c)}</td>
                         </tr>`;
                     });
                     html += `</tbody></table>`;
@@ -1212,6 +1269,7 @@ if (empty($_SESSION['admin_logged_in'])) {
                 alert("系統錯誤：無法開啟單日明細，請按 F12 查看 Console 錯誤訊息。");
             }
         }
+
     </script>
 </body>
 </html>

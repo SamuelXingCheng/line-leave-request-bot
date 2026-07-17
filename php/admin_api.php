@@ -210,9 +210,9 @@ try {
         $stmtO->execute($params);
         $overtimes = $stmtO->fetchAll(PDO::FETCH_ASSOC);
         
-        // 3. 抓取打卡紀錄
+        // 3. 抓取打卡紀錄 (利用 SQL 直接組合出 補打卡/上班 的格式)
         $stmtC = $db->prepare("
-            SELECT a.id, a.mode, a.created_at AS clock_time, a.status, a.approval_status, u.name AS user_name 
+            SELECT a.id, IF(a.reason LIKE '%補%', CONCAT('補打卡/', a.mode), a.mode) AS mode, a.created_at AS clock_time, a.status, a.approval_status, u.name AS user_name 
             FROM attendance_logs a JOIN users u ON a.user_id = u.user_id 
             $whereCk ORDER BY a.created_at DESC $limitClause
         ");
@@ -389,6 +389,44 @@ try {
         } catch (Exception $e) {
             $db->rollBack();
             throw $e;
+        }
+        exit;
+    }
+
+    // ==========================================
+    // 管理員手動補卡
+    // ==========================================
+    if ($action === 'manual_clockin') {
+        $input = json_decode(file_get_contents('php://input'), true);
+        $user_name = $input['user_name'] ?? '';
+        $clock_time = $input['clock_time'] ?? '';
+        $mode = $input['mode'] ?? '上班'; 
+        
+        // 確保寫入資料庫的 mode 絕對是合法的長度
+        if (!in_array($mode, ['上班', '下班'])) {
+            $mode = '上班'; 
+        }
+
+        if (!$user_name || !$clock_time) {
+            echo json_encode(['status' => 'error', 'message' => '參數不完整']);
+            exit;
+        }
+
+        try {
+            $stmtUser = $db->prepare("SELECT user_id FROM users WHERE name = ? LIMIT 1");
+            $stmtUser->execute([$user_name]);
+            $user = $stmtUser->fetch(PDO::FETCH_ASSOC);
+            $user_id = $user ? $user['user_id'] : 'admin_manual';
+
+            $uuid = $db->query("SELECT UUID()")->fetchColumn();
+            
+            // 寫入時 mode 存原本的(上班/下班)，reason 標記為補卡
+            $stmt = $db->prepare("INSERT INTO attendance_logs (attendance_uuid, user_id, mode, status, approval_status, created_at, reason) VALUES (?, ?, ?, 'success', 'approved', ?, '管理員手動補卡')");
+            $stmt->execute([$uuid, $user_id, $mode, $clock_time]);
+
+            echo json_encode(['status' => 'success', 'message' => '手動補卡成功']);
+        } catch (Exception $e) {
+            echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
         }
         exit;
     }
