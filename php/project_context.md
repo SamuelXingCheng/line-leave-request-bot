@@ -49,7 +49,7 @@
 * **HR 智慧管理後台：** `admin_users.php`, `admin_api.php` 
   * 支援獨立密碼安全驗證，可於外部瀏覽器全螢幕開啟。
   * **雙層互動視圖：** 具備「列表模式」與「行事曆模式」，支援 Hover 統計浮窗與單日明細 Modal，且支援 Modal 內無縫快捷簽核與自動重載。
-  * **智慧資料處理：** 列表模式支援單據狀態前端過濾，並具備「日期自動補全 (Smart Defaults)」與「未打卡員工動態偵測 (Missing Punch)」防呆機制。
+  * **智慧資料處理與稽核：** 列表模式支援單據狀態前端即時過濾，並具備「員工專屬逐日展開」視圖。系統會自動扣除假日，強制稽核每日「上班/下班」兩次打卡，具備「退件即失效轉缺卡」的嚴謹邏輯，並支援管理員直接於介面上操作**一鍵手動補卡**。
 
 ### ⚙️ 7. 系統核心與共用基礎模組
 驅動整個系統運作的底層架構。
@@ -67,6 +67,8 @@
 
 ## 3. 雙軌並行機制 (Form 表單 vs Text 指令)
 目前系統針對核心業務，同時保留了兩種操作介面，修改程式碼時需注意維持兩端邏輯的一致性（建議運算邏輯盡量收斂於 API 或 utils）：
+
+* **LIFF 表單通用 UI/UX 核心規範：** 所有申請表單送出後，皆採用 **Share Target Picker** 直接喚起好友列表轉傳；若環境不支援（如外部瀏覽器），則自動降級觸發「一鍵複製與手動轉傳」防呆機制。且發送給主管的卡片皆會附上「手機端快速簽核」與「電腦端網頁簽核 (Portal)」雙通道連結。
 * **請假申請：** `leave_form.php` / `leave_form_api.php` 🆚 `LeaveFlowHandler.php`
 * **補打卡申請：** `attendance_correction.php` / `attendance_correction_api.php` 🆚 `CorrectionHandler.php`
 * **加班申請：** `overtime_form.php` / `overtime_api.php` 🆚 `OvertimeFlowHandler.php`
@@ -193,9 +195,11 @@ AI 助手在撰寫 SQL 查詢時，必須嚴格遵守以下欄位名稱，切勿
 | --- | --- | --- |
 | `attendance_uuid` | VARCHAR | 打卡紀錄 UUID |
 | `user_id` | VARCHAR | 打卡人的 LINE ID |
-| `mode` | VARCHAR | `上班` 或 `下班` |
+| `mode` | VARCHAR | 嚴格限制為 `上班` 或 `下班` |
 | `status` | VARCHAR | 系統判定: `success`, `fail`, `pending` |
 | `approval_status` | VARCHAR | 主管審核: `normal`, `pending`, `approved`, `rejected` (`missing_punch` 則於前端動態生成) |
+| **`created_at`** | **DATETIME** | **實際打卡/補卡時間** |
+| **`reason`** | **VARCHAR** | **備註說明 (用於存放「管理員手動補卡」，供 SQL 動態渲染)** |
 
 ### 🕒 6. 加班申請單 (`overtime_requests`)
 
