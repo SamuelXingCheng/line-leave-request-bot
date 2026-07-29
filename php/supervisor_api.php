@@ -29,13 +29,26 @@ try {
         if (!empty($subLineIds)) {
             $placeholders = implode(',', array_fill(0, count($subLineIds), '?'));
 
-            // A. 待審核 - 新假單
-            $sqlLeave = "SELECT lr.id, u.name AS user_name, lr.leave_type, lr.start_at, lr.end_at, lr.reason, lr.created_at FROM leave_requests lr JOIN users u ON lr.user_id = u.user_id WHERE lr.status = 'pending' AND lr.user_id IN ($placeholders) ORDER BY lr.start_at ASC";
+            // A. 待審核 - 新假單 (🔥 加入 leave_approvals 關聯，過濾掉自己已經簽過的單)
+            $sqlLeave = "SELECT lr.id, u.name AS user_name, lr.leave_type, lr.start_at, lr.end_at, lr.reason, lr.created_at 
+                         FROM leave_requests lr 
+                         JOIN users u ON lr.user_id = u.user_id 
+                         JOIN leave_approvals la ON lr.id = la.request_id
+                         WHERE lr.status = 'pending' 
+                           AND lr.user_id IN ($placeholders) 
+                           AND la.supervisor_id = ? 
+                           AND la.status = 'pending' 
+                         ORDER BY lr.start_at ASC";
             $stmtL = $db->prepare($sqlLeave);
-            $stmtL->execute($subLineIds);
+            
+            // 將主管自己的 lineId 加到查詢參數的最後面
+            $paramsL = $subLineIds;
+            $paramsL[] = $lineId;
+            $stmtL->execute($paramsL);
+            
             $leaves = $stmtL->fetchAll(PDO::FETCH_ASSOC);
             foreach ($leaves as &$row) { $row['date_display'] = substr($row['start_at'], 0, 16) . ' ~ ' . substr($row['end_at'], 11, 5); }
-
+            
             // B. 待審核 - 變更/銷假
             $sqlMod = "SELECT lm.id, lm.modification_uuid, lm.type, lm.target_date, lm.created_at, u.name AS user_name, lr.leave_type FROM leave_modifications lm JOIN users u ON lm.user_id = u.user_id JOIN leave_requests lr ON lm.leave_request_id = lr.id WHERE lm.status = 'pending' AND lm.user_id IN ($placeholders) ORDER BY lm.created_at DESC";
             $stmtM = $db->prepare($sqlMod);
