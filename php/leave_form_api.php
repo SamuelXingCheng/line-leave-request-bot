@@ -153,17 +153,9 @@ try {
     // ----------------------------------------------------
     // 5. 產生訊息 (雙軌並行機制：手機指令 + 電腦網頁)
     // ----------------------------------------------------
-    $botId = getenv("LINE_BOT_ID"); 
-    
-    // [通道 A] 手機版文字指令連結
-    $approvalCommand = "/同意請假 {$uuid}";
-    $mobileApprovalLink = "line://oaMessage/@{$botId}/?" . rawurlencode($approvalCommand);
+    $liffId = getenv("MENU_LIFF_ID");
+    $approvalLink = "https://liff.line.me/{$liffId}/?page=supervisor&tab=leave&highlight={$uuid}";
 
-    // [通道 B] 電腦/網頁版出勤中心連結 (請確認 .env 已設定 PORTAL_LIFF_ID 或共用 MENU_LIFF_ID)
-    $portalLiffId = getenv("PORTAL_LIFF_ID") ?: getenv("MENU_LIFF_ID");
-    $webApprovalLink = "https://liff.line.me/{$portalLiffId}/?page=supervisor&highlight={$uuid}";
-
-    // 重構主訊息：移除表情符號，採用極簡商務風格
     $mainMessage = [
         "type" => "text",
         "text" => 
@@ -176,11 +168,8 @@ try {
             "申請時段｜\n" .
             "{$input['startDate']} {$input['startTime']} ~ {$input['endDate']} {$input['endTime']}\n" .
             "請假時數｜{$leaveHours} 小時\n\n" .
-            "請選擇簽核方式：\n\n" .
-            "[手機端快速簽核]\n" .
-            $mobileApprovalLink . "\n\n" .
-            "[電腦端網頁簽核]\n" .
-            $webApprovalLink
+            "請點選下方連結進入審核中心簽核：\n" .
+            $approvalLink
     ];
 
     $hintText = "【系統提示】\n請將上方訊息轉傳給：";

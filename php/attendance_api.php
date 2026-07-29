@@ -150,14 +150,11 @@ if ($is_in_range || $is_qr_valid) {
     $supervisors = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     // 產生商務版審核連結
-    $botId = getenv("LINE_BOT_ID");
-    $approvalCommand = "/同意補卡 {$uuid}"; 
-    $approvalLink = "line://oaMessage/@{$botId}/?" . rawurlencode($approvalCommand);
+    $liffId = getenv("MENU_LIFF_ID");
+    $approvalLink = "https://liff.line.me/{$liffId}/?page=supervisor&tab=clockin&highlight={$uuid}";
     
-    // 取得備註原因
     $finalReason = $is_qr_valid ? "QR Code 驗證" : ($reason ?: "無");
 
-    // 🔥 1. 第一則訊息：正式簽核通知 (給員工轉傳用)
     $mainMsgText = "【打卡異常簽核通知】\n" .
                    "────────────────\n" .
                    "申請人員｜{$userName}\n" .
@@ -167,7 +164,7 @@ if ($is_in_range || $is_qr_valid) {
                    "打卡時間｜{$displayTime}\n" .
                    "備註說明｜{$finalReason}\n" .
                    "────────────────\n" .
-                   "若同意補卡，請點擊下方連結簽核：\n" .
+                   "請點選下方連結進入審核中心簽核：\n" .
                    $approvalLink;
 
     // 🔥 2. 第二則訊息：主管提示

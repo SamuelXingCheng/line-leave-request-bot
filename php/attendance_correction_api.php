@@ -67,9 +67,8 @@ try {
     }
 
     // 5. 產生商務版訊息
-    $botId = getenv("LINE_BOT_ID");
-    $approvalCommand = "/同意補卡 {$uuid}"; 
-    $approvalLink = "line://oaMessage/@{$botId}/?" . rawurlencode($approvalCommand);
+    $liffId = getenv("MENU_LIFF_ID");
+    $approvalLink = "https://liff.line.me/{$liffId}/?page=supervisor&tab=clockin&highlight={$uuid}";
 
     $mainMsg = [
         "type" => "text",
@@ -81,7 +80,7 @@ try {
             "補卡時間｜{$datetime}\n" .
             "補卡原因｜{$input['reason']}\n" .
             "────────────────\n" .
-            "若同意申請，請點擊下方連結簽核：\n" .
+            "請點選下方連結進入審核中心簽核：\n" .
             $approvalLink
     ];
 

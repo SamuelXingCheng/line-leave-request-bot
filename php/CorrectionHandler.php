@@ -202,17 +202,15 @@ class CorrectionHandler {
             replyTextMessage($this->replyToken, $msg);
         } else {
             // 一般員工：產生審核連結
-            $approvalCommand = "/審核打卡 {$uuid}";
-            $botId = getenv("LINE_BOT_ID"); 
-            $encoded = rawurlencode($approvalCommand);
-            $approvalLink = "https://line.me/R/oaMessage/@{$botId}/?{$encoded}";
+            $liffId = getenv("MENU_LIFF_ID");
+            $approvalLink = "https://liff.line.me/{$liffId}/?page=supervisor&tab=clockin&highlight={$uuid}";
 
             $msg = "📌 已提交補打卡申請\n\n"
-                 . "日期：{$date}\n"
-                 . "類型：{$type}\n"
-                 . "時間：{$time}\n"
-                 . "原因：{$reason}\n\n"
-                 . "👉 主管審核連結：\n{$approvalLink}";
+                . "日期：{$date}\n"
+                . "類型：{$type}\n"
+                . "時間：{$time}\n"
+                . "原因：{$reason}\n\n"
+                . "👉 點選下方連結進入審核：\n{$approvalLink}";
 
             replyTextMessage($this->replyToken, $msg);
         }

@@ -206,19 +206,18 @@ class OvertimeFlowHandler {
             return true;
         }
 
-        $botId = getenv("LINE_BOT_ID");
-        $approvalCommand = "/同意加班 {$uuid}";
-        $approvalLink = "line://oaMessage/@{$botId}/?" . rawurlencode($approvalCommand);
+        $liffId = getenv("MENU_LIFF_ID");
+        $approvalLink = "https://liff.line.me/{$liffId}/?page=supervisor&tab=overtime&highlight={$uuid}";
 
         $mainMsgText = "【加班簽核通知】\n" .
-                       "────────────────\n" .
-                       "申請人員｜{$name}\n" .
-                       "加班時數｜{$otHours} 小時\n" .
-                       "加班時段｜{$date} {$start} ~ {$end}\n" .
-                       "加班內容｜{$reason}\n" .
-                       "────────────────\n" .
-                       "若同意申請，請點擊下方連結簽核：\n" .
-                       $approvalLink;
+                    "────────────────\n" .
+                    "申請人員｜{$name}\n" .
+                    "加班時數｜{$otHours} 小時\n" .
+                    "加班時段｜{$date} {$start} ~ {$end}\n" .
+                    "加班內容｜{$reason}\n" .
+                    "────────────────\n" .
+                    "請點選下方連結進入審核中心簽核：\n" .
+                    $approvalLink;
 
         $supervisorNames = $this->getSupervisorNamesForUser($this->lineId);
 
