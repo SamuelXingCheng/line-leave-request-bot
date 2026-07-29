@@ -110,102 +110,139 @@ try {
         }
 
     // ==========================================
-    // 功能 A: 取得假單列表 (List)
+    // 功能 A: 取得列表 (List - 支援多頁籤)
     // ==========================================
     if ($action === 'list') {
         $requestedUserId = $_GET['userId'] ?? '';
+        $type = $_GET['type'] ?? 'leave'; // 接收前端傳來的頁籤類型
 
         if (empty($requestedUserId)) {
-            echo json_encode(['leaves' => []]);
+            echo json_encode(['records' => []]);
             exit;
         }
 
-        // 授權驗證：只允許查詢自己的假單
-        // 注意：$requestedUserId 僅用於授權比對，通過後查詢固定使用 $verifiedUserId，
-        // 此為刻意設計的防禦性做法，確保資料庫查詢參數不受用戶端控制。
         if ($requestedUserId !== $verifiedUserId) {
             http_response_code(403);
             echo json_encode([
                 'status' => 'error',
-                'message' => '無權查詢他人的假單列表',
-                'leaves' => []
+                'message' => '無權查詢他人紀錄',
+                'records' => []
             ]);
             exit;
         }
 
-        $stmt = $db->prepare("
-            SELECT id, request_group_id, leave_type, start_at, end_at, leave_hours, status
-            FROM leave_requests
-            WHERE user_id = ?
-              AND status IN ('pending', 'approved')
-              AND end_at > DATE_SUB(NOW(), INTERVAL 60 DAY)
-            ORDER BY created_at DESC
-        ");
-        $stmt->execute([$verifiedUserId]);
-        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $rows = [];
+        if ($type === 'leave') {
+            // 撈取請假單
+            $stmt = $db->prepare("
+                SELECT id, request_group_id, leave_type, start_at, end_at, leave_hours, status
+                FROM leave_requests
+                WHERE user_id = ? AND status IN ('pending', 'approved') AND end_at > DATE_SUB(NOW(), INTERVAL 60 DAY)
+                ORDER BY created_at DESC
+            ");
+            $stmt->execute([$verifiedUserId]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        echo json_encode(['leaves' => $rows]);
+        } elseif ($type === 'overtime') {
+            // 撈取加班單
+            $stmt = $db->prepare("
+                SELECT overtime_uuid, start_at, end_at, hours, reason, status
+                FROM overtime_requests
+                WHERE user_id = ? AND status IN ('pending', 'approved') AND created_at > DATE_SUB(NOW(), INTERVAL 60 DAY)
+                ORDER BY created_at DESC
+            ");
+            $stmt->execute([$verifiedUserId]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        } elseif ($type === 'clockin') {
+            // 撈取補打卡 (注意狀態欄位名稱是 approval_status)
+            $stmt = $db->prepare("
+                SELECT attendance_uuid, mode, created_at, reason, approval_status
+                FROM attendance_logs
+                WHERE user_id = ? AND approval_status IN ('pending', 'approved') AND created_at > DATE_SUB(NOW(), INTERVAL 60 DAY)
+                ORDER BY created_at DESC
+            ");
+            $stmt->execute([$verifiedUserId]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        }
+
+        echo json_encode(['records' => $rows]);
         exit;
     }
 
     // ==========================================
-    // 功能 B: 撤回申請 (Pending Delete)
+    // 功能 B: 撤回申請 (Pending Delete - 支援三種類型)
     // ==========================================
     if ($action === 'delete') {
-        $groupId = $_GET['groupId'] ?? '';
-        if (empty($groupId)) throw new BusinessException("缺少 request_group_id");
+        $type = $_GET['type'] ?? 'leave';
+        // 為了相容前端傳過來的參數，統一使用 $id
+        $id = $_GET['id'] ?? $_GET['groupId'] ?? ''; 
+
+        if (empty($id)) throw new BusinessException("缺少 ID 參數");
 
         $db->beginTransaction();
         
-        $stmt = $db->prepare("
-            SELECT user_id, status, deduct_annual, deduct_comp
-            FROM leave_requests
-            WHERE request_group_id = ?
-            FOR UPDATE
-        ");
-        $stmt->execute([$groupId]);
-        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if ($type === 'leave') {
+            // 撤回請假單邏輯 (退還時數)
+            $stmt = $db->prepare("SELECT user_id, status, deduct_annual, deduct_comp FROM leave_requests WHERE request_group_id = ? FOR UPDATE");
+            $stmt->execute([$id]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        if (!$rows) {
-        $db->rollBack();
-            throw new BusinessException("找不到該筆紀錄");
-    }
-
-        $ownerUserId = $rows[0]['user_id'];
-        if ($ownerUserId !== $verifiedUserId) {
-            $db->rollBack();
-            http_response_code(403);
-            echo json_encode([
-                'status' => 'error',
-                'message' => '無權操作此假單',
-                'leaves' => []
-            ]);
-            exit;
-        }
-
-        $totalAnnual = 0;
-        $totalComp = 0;
-        $userId = $ownerUserId;
-
-        foreach ($rows as $row) {
-            if ($row['status'] !== 'pending') {
+            if (!$rows) {
                 $db->rollBack();
-                throw new BusinessException("只能撤回待審核的假單");
+                throw new BusinessException("找不到該筆紀錄");
             }
-            $totalAnnual += floatval($row['deduct_annual'] ?? 0);
-            $totalComp += floatval($row['deduct_comp'] ?? 0);
-        }
 
-        if ($totalAnnual > 0 || $totalComp > 0) {
-            $upd = $db->prepare("UPDATE users SET annual_leave_hours = annual_leave_hours + ?, comp_leave_hours = comp_leave_hours + ? WHERE user_id = ?");
-            $upd->execute([$totalAnnual, $totalComp, $userId]);
-        }
+            if ($rows[0]['user_id'] !== $verifiedUserId) {
+                $db->rollBack();
+                throw new BusinessException("無權操作此假單");
+            }
 
-        $db->prepare("DELETE FROM leave_approvals WHERE request_id IN (SELECT id FROM leave_requests WHERE request_group_id = ?)")->execute([$groupId]);
-        $db->prepare("DELETE FROM leave_requests WHERE request_group_id = ?")->execute([$groupId]);
+            $totalAnnual = 0; $totalComp = 0;
+            foreach ($rows as $row) {
+                if ($row['status'] !== 'pending') {
+                    $db->rollBack();
+                    throw new BusinessException("只能撤回待審核的假單");
+                }
+                $totalAnnual += floatval($row['deduct_annual'] ?? 0);
+                $totalComp += floatval($row['deduct_comp'] ?? 0);
+            }
+
+            if ($totalAnnual > 0 || $totalComp > 0) {
+                $upd = $db->prepare("UPDATE users SET annual_leave_hours = annual_leave_hours + ?, comp_leave_hours = comp_leave_hours + ? WHERE user_id = ?");
+                $upd->execute([$totalAnnual, $totalComp, $verifiedUserId]);
+            }
+
+            $db->prepare("DELETE FROM leave_approvals WHERE request_id IN (SELECT id FROM leave_requests WHERE request_group_id = ?)")->execute([$id]);
+            $db->prepare("DELETE FROM leave_requests WHERE request_group_id = ?")->execute([$id]);
+
+        } elseif ($type === 'overtime') {
+            // 撤回加班單邏輯
+            $stmt = $db->prepare("SELECT user_id, status FROM overtime_requests WHERE overtime_uuid = ? FOR UPDATE");
+            $stmt->execute([$id]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$row) { $db->rollBack(); throw new BusinessException("找不到該筆紀錄"); }
+            if ($row['user_id'] !== $verifiedUserId) { $db->rollBack(); throw new BusinessException("無權操作此申請"); }
+            if ($row['status'] !== 'pending') { $db->rollBack(); throw new BusinessException("只能撤回待審核的加班單"); }
+
+            $db->prepare("DELETE FROM overtime_requests WHERE overtime_uuid = ?")->execute([$id]);
+
+        } elseif ($type === 'clockin') {
+            // 撤回補打卡邏輯
+            $stmt = $db->prepare("SELECT user_id, approval_status FROM attendance_logs WHERE attendance_uuid = ? FOR UPDATE");
+            $stmt->execute([$id]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$row) { $db->rollBack(); throw new BusinessException("找不到該筆紀錄"); }
+            if ($row['user_id'] !== $verifiedUserId) { $db->rollBack(); throw new BusinessException("無權操作此申請"); }
+            if ($row['approval_status'] !== 'pending') { $db->rollBack(); throw new BusinessException("只能撤回待審核的補打卡單"); }
+
+            $db->prepare("DELETE FROM attendance_logs WHERE attendance_uuid = ?")->execute([$id]);
+        }
 
         $db->commit();
-        echo json_encode(['status' => 'success', 'message' => '✅ 已撤回申請並退還時數']);
+        echo json_encode(['status' => 'success', 'message' => '✅ 已成功撤回申請']);
         exit;
     }
     

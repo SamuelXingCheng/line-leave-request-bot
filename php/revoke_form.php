@@ -112,6 +112,19 @@ $liffId = getenv('MENU_LIFF_ID');
             border-radius: var(--radius); box-sizing: border-box; -webkit-appearance: none; 
         }
         #loading { text-align: center; color: var(--text-sub); margin-top: 40px; }
+
+        /* Tabs Styles */
+        .tabs { 
+            display: flex; gap: 8px; margin-bottom: 16px; 
+            background: #fff; padding: 6px; border-radius: var(--radius); 
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05); 
+        }
+        .tab-btn { 
+            flex: 1; padding: 10px 0; text-align: center; font-size: 0.95rem; 
+            font-weight: 600; color: var(--text-sub); cursor: pointer; 
+            border-radius: 6px; transition: background-color 0.2s, color 0.2s; 
+        }
+        .tab-btn.active { background: var(--primary); color: #fff; }
     </style>
 </head>
 <body>
@@ -124,8 +137,14 @@ $liffId = getenv('MENU_LIFF_ID');
         <a href="menu.php" class="btn-back">回選單</a>
     </div>
 
+    <div class="tabs">
+        <div class="tab-btn active" onclick="switchTab('leave')" id="tab-leave">請假單</div>
+        <div class="tab-btn" onclick="switchTab('overtime')" id="tab-overtime">加班單</div>
+        <div class="tab-btn" onclick="switchTab('clockin')" id="tab-clockin">補打卡</div>
+    </div>
+
     <div id="loading">資料讀取中...</div>
-    <div id="leaveList" style="display: none;"></div>
+    <div id="dataList" style="display: none;"></div>
 
     <div id="modifyModal" class="modal-overlay">
         <div class="modal-content">
@@ -163,53 +182,106 @@ $liffId = getenv('MENU_LIFF_ID');
                     liff.login({ scope: "profile chat_message.write" });
                     return;
                 }
-                loadLeaves();
+                loadData()
             } catch (err) {
                 alert("系統初始化失敗：" + err.message);
             }
         }
 
-        async function loadLeaves() {
+        let currentTab = 'leave';
+
+        function switchTab(tabName) {
+            currentTab = tabName;
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById('tab-' + tabName).classList.add('active');
+            loadData();
+        }
+
+        async function loadData() {
             try {
+                const listDiv = document.getElementById('dataList');
+                document.getElementById('loading').style.display = 'block';
+                listDiv.style.display = 'none';
+                listDiv.innerHTML = "";
+
                 const profile = await liff.getProfile();
-                const res = await fetch(`revoke_api.php?action=list&userId=${profile.userId}`, {
-                    headers: {
-                        'Authorization': `Bearer ${liff.getAccessToken()}`
-                    }
+                // 網址加上 type 參數讓後端知道要撈什麼資料
+                const res = await fetch(`revoke_api.php?action=list&type=${currentTab}&userId=${profile.userId}`, {
+                    headers: { 'Authorization': `Bearer ${liff.getAccessToken()}` }
                 });
                 const data = await res.json();
                 
-                const listDiv = document.getElementById('leaveList');
                 document.getElementById('loading').style.display = 'none';
                 listDiv.style.display = 'block';
-                listDiv.innerHTML = "";
 
-                if (!data.leaves || data.leaves.length === 0) {
+                if (!data.records || data.records.length === 0) {
                     listDiv.innerHTML = '<p style="text-align:center; color:#888; padding: 40px;">目前無可變更之紀錄</p>';
                     return;
                 }
 
-                data.leaves.forEach(leaf => {
-                    const isPending = leaf.status === 'pending';
-                    const startStr = leaf.start_at.substring(0, 16);
-                    const endStr = leaf.end_at.substring(0, 16);
+                data.records.forEach(item => {
+                    let html = '';
+                    // 補打卡的狀態欄位叫 approval_status，其餘叫 status
+                    const isPending = (item.status === 'pending' || item.approval_status === 'pending');
                     const statusTag = isPending ? `<span class="status-tag tag-pending">審核中</span>` : `<span class="status-tag tag-approved">已核准</span>`;
 
-                    const buttons = isPending
-                        ? `<button onclick="handleDelete('${leaf.request_group_id}')" class="btn btn-outline">撤回申請</button>
-                           <button onclick="openModifyModal('${leaf.id}', '${leaf.start_at}', '${leaf.end_at}')" class="btn btn-primary">變更時段</button>`
-                        : `<button onclick="handleFullRevoke('${leaf.id}')" class="btn btn-danger-outline">註銷假單</button>
-                           <button onclick="openModifyModal('${leaf.id}', '${leaf.start_at}', '${leaf.end_at}')" class="btn btn-primary">變更時段</button>`;
-                    listDiv.innerHTML += `
-                        <div class="card ${isPending ? 'pending' : 'approved'}">
-                            <div class="card-header">
-                                <div><span class="leave-type">${leaf.leave_type}</span>${statusTag}</div>
-                                <span class="hours">${leaf.leave_hours}h</span>
+                    if (currentTab === 'leave') {
+                        const startStr = item.start_at.substring(0, 16);
+                        const endStr = item.end_at.substring(0, 16);
+                        const buttons = isPending
+                            ? `<button onclick="handleDelete('leave', '${item.request_group_id}')" class="btn btn-outline">撤回申請</button>
+                               <button onclick="openModifyModal('${item.id}', '${item.start_at}', '${item.end_at}')" class="btn btn-primary">變更時段</button>`
+                            : `<button onclick="handleFullRevoke('${item.id}')" class="btn btn-danger-outline">註銷假單</button>
+                               <button onclick="openModifyModal('${item.id}', '${item.start_at}', '${item.end_at}')" class="btn btn-primary">變更時段</button>`;
+                        
+                        html = `
+                            <div class="card ${isPending ? 'pending' : 'approved'}">
+                                <div class="card-header">
+                                    <div><span class="leave-type">${item.leave_type}</span>${statusTag}</div>
+                                    <span class="hours">${item.leave_hours}h</span>
+                                </div>
+                                <span class="date-range"><span class="label">期間</span> ${startStr} ~ ${endStr}</span>
+                                <div class="btn-group">${buttons}</div>
                             </div>
-                            <span class="date-range"><span class="label">期間</span> ${startStr} ~ ${endStr}</span>
-                            <div class="btn-group">${buttons}</div>
-                        </div>
-                    `;
+                        `;
+                    } 
+                    else if (currentTab === 'overtime') {
+                        const startStr = item.start_at.substring(0, 16);
+                        const endStr = item.end_at.substring(0, 16);
+                        const buttons = isPending 
+                            ? `<button onclick="handleDelete('overtime', '${item.overtime_uuid}')" class="btn btn-outline">撤回申請</button>` 
+                            : `<span class="label" style="display:block; text-align:center; width:100%;">已核准，如需註銷請聯繫管理員</span>`;
+
+                        html = `
+                            <div class="card ${isPending ? 'pending' : 'approved'}">
+                                <div class="card-header">
+                                    <div><span class="leave-type">加班申請</span>${statusTag}</div>
+                                    <span class="hours">${item.hours}h</span>
+                                </div>
+                                <span class="date-range"><span class="label">期間</span> ${startStr} ~ ${endStr}</span>
+                                <span class="date-range" style="margin-top:-8px;"><span class="label">事由</span> ${item.reason}</span>
+                                <div class="btn-group">${buttons}</div>
+                            </div>
+                        `;
+                    } 
+                    else if (currentTab === 'clockin') {
+                        const timeStr = item.created_at.substring(0, 16);
+                        const buttons = isPending 
+                            ? `<button onclick="handleDelete('clockin', '${item.attendance_uuid}')" class="btn btn-outline">撤回申請</button>` 
+                            : `<span class="label" style="display:block; text-align:center; width:100%;">已核准不可撤回</span>`;
+
+                        html = `
+                            <div class="card ${isPending ? 'pending' : 'approved'}">
+                                <div class="card-header">
+                                    <div><span class="leave-type">補打卡 (${item.mode})</span>${statusTag}</div>
+                                </div>
+                                <span class="date-range"><span class="label">時間</span> ${timeStr}</span>
+                                <span class="date-range" style="margin-top:-8px;"><span class="label">原因</span> ${item.reason}</span>
+                                <div class="btn-group">${buttons}</div>
+                            </div>
+                        `;
+                    }
+                    listDiv.innerHTML += html;
                 });
             } catch (e) {
                 alert("讀取失敗：" + e.message);
@@ -281,15 +353,15 @@ $liffId = getenv('MENU_LIFF_ID');
                                 } else {
                                     alert("申請成功，但訊息發送失敗 (" + err.message + ")");
                                 }
-                                closeModal(); loadLeaves();
+                                closeModal(); loadData();
                             }
                         } else {
                             alert("申請成功！\n(提示：您目前使用外部瀏覽器，無法自動發送 LINE 訊息，請用手機 LINE 操作)");
-                            closeModal(); loadLeaves();
+                            closeModal(); loadData();
                         }
                     } else {
                         alert(result.message);
-                        closeModal(); loadLeaves();
+                        closeModal(); loadData();
                     }
                 } else {
                     throw new Error(result.message);
@@ -300,18 +372,17 @@ $liffId = getenv('MENU_LIFF_ID');
         }
 
         // --- 撤回與註銷 ---
-        async function handleDelete(groupId) {
+        async function handleDelete(type, id) {
              if(!confirm("確定要撤回此申請？")) return;
              try {
-                const res = await fetch(`revoke_api.php?action=delete&groupId=${groupId}`, {
-                    headers: {
-                    'Authorization': `Bearer ${liff.getAccessToken()}`
-                    }
+                // 將 type 與對應的 id 傳給後端
+                const res = await fetch(`revoke_api.php?action=delete&type=${type}&id=${id}`, {
+                    headers: { 'Authorization': `Bearer ${liff.getAccessToken()}` }
                 });
 
                 const result = await res.json();
                 alert(result.message);
-                loadLeaves();
+                loadData(); // 重新讀取當前頁籤資料
             } catch(e) { alert("失敗：" + e.message); }
         }
 
@@ -344,14 +415,14 @@ $liffId = getenv('MENU_LIFF_ID');
                                 liff.closeWindow();
                             } catch (err) {
                                 alert("申請成功，但訊息發送失敗。");
-                                loadLeaves();
+                                loadData();
                             }
                         } else {
                             alert("申請成功！(外部瀏覽器無法自動發送 LINE 訊息)");
-                            loadLeaves();
+                            loadData();
                         }
                     } else {
-                        loadLeaves();
+                        loadData();
                     }
                 } else {
                     alert(result.message);
