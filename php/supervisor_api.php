@@ -120,6 +120,19 @@ try {
                         if ($checkStmt->fetchColumn() == 0) {
                             // 3. 全員通過才正式核准假單
                             $db->prepare("UPDATE leave_requests SET status = 'approved' WHERE id = ? AND status = 'pending'")->execute([$id]);
+                            
+                            // 🔥 補上：發送核准卡片給員工
+                            $lrReq = $db->prepare("SELECT user_id, start_at FROM leave_requests WHERE id = ?");
+                            $lrReq->execute([$id]);
+                            $lr = $lrReq->fetch();
+                            if ($lr) {
+                                $flexCard = createBusinessFlex(
+                                    "APPROVED", "請假單已核准", 
+                                    ["單據類型" => "請假單", "開始時間" => $lr['start_at'], "審核狀態" => "主管核准 (Approved)"], 
+                                    "#06C755"
+                                );
+                                pushMessage($lr['user_id'], $flexCard);
+                            }
                         }
                     } elseif ($item['type'] === 'overtime') {
                         $otReq = $db->prepare("SELECT user_id, start_at, hours FROM overtime_requests WHERE id = ? AND status = 'pending' FOR UPDATE"); 
@@ -128,13 +141,29 @@ try {
                         if ($ot) {
                             $db->prepare("UPDATE overtime_requests SET status = 'approved' WHERE id = ?")->execute([$id]);
                             $db->prepare("UPDATE users SET comp_leave_hours = comp_leave_hours + ? WHERE user_id = ?")->execute([$ot['hours'], $ot['user_id']]);
-                            // (依據之前的建議，此處推播可保留或刪除)
+                            
+                            // 🔥 補上：發送核准卡片給員工
+                            $flexCard = createBusinessFlex(
+                                "APPROVED", "加班單已核准", 
+                                ["單據類型" => "加班單", "開始時間" => $ot['start_at'], "核准時數" => $ot['hours'] . " 小時", "審核狀態" => "主管核准 (Approved)"], 
+                                "#06C755"
+                            );
+                            pushMessage($ot['user_id'], $flexCard);
                         }
                     } elseif ($item['type'] === 'clockin') {
-                        $ckReq = $db->prepare("SELECT user_id, created_at FROM attendance_logs WHERE id = ?"); $ckReq->execute([$id]); $ck = $ckReq->fetch();
+                        $ckReq = $db->prepare("SELECT user_id, created_at FROM attendance_logs WHERE id = ?"); 
+                        $ckReq->execute([$id]); 
+                        $ck = $ckReq->fetch();
                         if ($ck) {
                             $db->prepare("UPDATE attendance_logs SET approval_status = 'approved', status = 'success', approved_at = NOW() WHERE id = ?")->execute([$id]);
-                            // (依據之前的建議，此處推播可保留或刪除)
+                            
+                            // 🔥 補上：發送核准卡片給員工
+                            $flexCard = createBusinessFlex(
+                                "APPROVED", "補打卡已核准", 
+                                ["單據類型" => "異常打卡補登", "打卡時間" => $ck['created_at'], "審核狀態" => "主管核准 (Approved)"], 
+                                "#06C755"
+                            );
+                            pushMessage($ck['user_id'], $flexCard);
                         }
                     }
                     $db->commit();
@@ -183,7 +212,12 @@ try {
                         $db->prepare("UPDATE leave_approvals SET status = 'rejected', updated_at = NOW() WHERE request_id = ? AND supervisor_id = ?")->execute([$id, $lineId]);
                         
                         // 4. 發送通知給員工
-                        pushMessage($res['user_id'], ['type'=>'text', 'text'=>"【主管退件】您於 {$res['start_at']} 的假單已被駁回，已退還扣抵時數。"]);
+                        $flexCard = createBusinessFlex(
+                            "REJECTED", "假單已被駁回", 
+                            ["單據類型" => "請假單", "開始時間" => $res['start_at'], "審核狀態" => "主管退件 (Rejected)", "備註" => "已退還扣抵時數"], 
+                            "#DC3545"
+                        );
+                        pushMessage($res['user_id'], $flexCard);
                     }
                 } elseif ($item['type'] === 'overtime') {
                     // 🔥 修正：這裡是退件(駁回)，加上 FOR UPDATE 防呆，並設為 rejected (不給時數)
@@ -192,18 +226,37 @@ try {
                     $ot = $otReq->fetch();
                     if ($ot) {
                         $db->prepare("UPDATE overtime_requests SET status = 'rejected' WHERE id = ?")->execute([$id]);
-                        pushMessage($ot['user_id'], ['type'=>'text', 'text'=>"【主管退件】您於 {$ot['start_at']} 的加班單已被駁回。"]);
+                        $flexCard = createBusinessFlex(
+                            "REJECTED", "加班單已被駁回", 
+                            ["單據類型" => "加班單", "開始時間" => $ot['start_at'], "審核狀態" => "主管退件 (Rejected)"], 
+                            "#DC3545"
+                        );
+                        pushMessage($ot['user_id'], $flexCard);
                     }
                 } elseif ($item['type'] === 'clockin') {
                     $db->prepare("UPDATE attendance_logs SET approval_status = 'rejected' WHERE id = ?")->execute([$id]);
                     $ckReq = $db->prepare("SELECT user_id, created_at FROM attendance_logs WHERE id = ?"); $ckReq->execute([$id]); $ck = $ckReq->fetch();
-                    if ($ck) pushMessage($ck['user_id'], ['type'=>'text', 'text'=>"【主管退件】您於 {$ck['created_at']} 的異常打卡補登已被駁回。"]);
+                    if ($ck) {
+                        $flexCard = createBusinessFlex(
+                            "REJECTED", "補打卡已被駁回", 
+                            ["單據類型" => "異常打卡補登", "打卡時間" => $ck['created_at'], "審核狀態" => "主管退件 (Rejected)"], 
+                            "#DC3545"
+                        );
+                        pushMessage($ck['user_id'], $flexCard);
+                    }
                 } elseif ($item['type'] === 'mod') {
                     $db->prepare("UPDATE leave_modifications SET status = 'rejected' WHERE modification_uuid = ?")->execute([$id]);
                     $modReq = $db->prepare("SELECT user_id FROM leave_modifications WHERE modification_uuid = ?"); 
                     $modReq->execute([$id]); 
                     $mod = $modReq->fetch();
-                    if ($mod) pushMessage($mod['user_id'], ['type'=>'text', 'text'=>"【主管退件】您的假單變更/銷假申請已被駁回。"]);
+                    if ($mod) {
+                        $flexCard = createBusinessFlex(
+                            "REJECTED", "申請已被駁回", 
+                            ["單據類型" => "假單變更 / 銷假", "審核狀態" => "主管退件 (Rejected)"], 
+                            "#DC3545"
+                        );
+                        pushMessage($mod['user_id'], $flexCard);
+                    }
                 }
                 $db->commit();
             } catch (Exception $e) {

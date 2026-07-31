@@ -79,10 +79,20 @@ class AttendanceApprovalHandler {
 
             // 5. 處理回覆與推播通知
             $dt = date('Y-m-d H:i', strtotime($row['created_at']));
-            replyTextMessage($replyToken, "✅ 打卡異常簽核成功！已核准 {$row['employee_name']} 於 {$dt} 的「{$row['mode']}」補登。");
 
+            $flexData = [
+                "員工姓名" => $row['employee_name'],
+                "打卡類型" => $row['mode'],
+                "打卡時間" => $dt,
+                "審核狀態" => "主管核准 (Approved)"
+            ];
+
+            // 給主管的回覆卡片
+            replyMessage($replyToken, createBusinessFlex("APPROVED", "補登已核准", $flexData, "#06C755"));
+
+            // 發送給員工的結果卡片
             if (function_exists('pushMessage')) {
-                pushMessage($row['user_id'], ["type" => "text", "text" => "【系統通知】您於 {$dt} 的「{$row['mode']}」補卡申請，已由主管核准成功。"]);
+                pushMessage($row['user_id'], createBusinessFlex("NOTIFICATION", "補打卡已核准", $flexData, "#06C755"));
             }
 
         } catch (Exception $e) {

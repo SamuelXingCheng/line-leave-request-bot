@@ -324,8 +324,27 @@ try {
         $db->commit();
 
         // 自動推播 LINE 通知給該員工
-        if ($userIdToNotify && $notifyMsg && function_exists('pushMessage')) {
-            try { pushMessage($userIdToNotify, ['type' => 'text', 'text' => $notifyMsg]); } catch(Exception $e) {}
+        if ($userIdToNotify && function_exists('pushMessage')) {
+            $isApproved = ($newStatus === 'approved');
+            $color = $isApproved ? "#06C755" : "#DC3545"; 
+            $topStatus = $isApproved ? "APPROVED" : "REJECTED";
+            $title = $isApproved ? "單據已核准" : "單據已被退件";
+            $statusText = $isApproved ? "核准 (Approved)" : "退件 (Rejected)";
+
+            // 依據不同單據組合內容
+            $flexData = [];
+            if ($type === 'leave') {
+                $flexData = ["單據類型" => "請假單", "開始時間" => $lv['start_at'], "審核狀態" => $statusText];
+            } elseif ($type === 'overtime') {
+                $flexData = ["單據類型" => "加班單", "開始時間" => $ot['start_at'], "審核狀態" => $statusText];
+            } elseif ($type === 'clockin') {
+                $flexData = ["單據類型" => "補打卡單", "打卡時間" => $ck['created_at'], "審核狀態" => $statusText];
+            }
+
+            try { 
+                $flexCard = createBusinessFlex($topStatus, $title, $flexData, $color);
+                pushMessage($userIdToNotify, $flexCard); 
+            } catch(Exception $e) {}
         }
 
         echo json_encode(['status' => 'success', 'message' => '狀態已成功更新']);

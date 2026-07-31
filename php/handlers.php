@@ -26,18 +26,24 @@ foreach ($files as $file) {
 function handleMessage($event, $db) {
     $replyToken = $event['replyToken'];
     $userId     = $event['source']['userId'];
-    $text       = $event['message']['text'] ?? ''; 
+    $text       = $event['message']['text'] ?? '';
 
-    if (strpos($text, "【請假簽核通知】") !== false || 
-        strpos($text, "【加班申請】") !== false ||
-        strpos($text, "【系統提示】") !== false ||
+    // 擴充過濾條件，排除所有表單標題
+    if (strpos($text, "審核通過") !== false ||
+        strpos($text, "審核拒絕") !== false ||
+        strpos($text, "系統提示") !== false ||
+        strpos($text, "請將上方訊息轉傳") !== false ||
+        strpos($text, "已簽核") !== false ||
+        strpos($text, "【請假申請單】") !== false ||
+        strpos($text, "【加班申請單】") !== false ||
         strpos($text, "【補打卡簽核通知】") !== false ||
-        strpos($text, "【系統通知】") !== false) {
-        error_log("🔍 [Trace] 偵測到轉傳通知，不執行任何動作。");
-        return; // 直接結束，不回覆任何訊息
+        strpos($text, "【銷假") !== false) {
+        
+        error_log("  [Trace] 略過通知或轉傳訊息: " . $text);
+        return; // 略過處理，不回覆任何訊息
     }
 
-    error_log("🔍 [Trace] 1. 進入 handleMessage, 指令: " . $text);
+    error_log("  [Trace] 1. 進入 handleMessage, 訊息內容: " . $text);
 
     // 統一清除 Session
     if (isCommand($text)) {
