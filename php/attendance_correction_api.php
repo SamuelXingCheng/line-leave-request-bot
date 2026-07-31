@@ -60,11 +60,13 @@ try {
     $stmtSup->execute([$input['userId']]);
     $supervisorIds = $stmtSup->fetchAll(PDO::FETCH_COLUMN);
     
-    $supervisorHint = "尚未設定直屬主管，請聯繫管理員。";
-    if (!empty($supervisorIds)) {
-        $names = getSupervisorNames($supervisorIds);
-        $supervisorHint = "請將上方訊息轉傳給：\n─ " . implode("\n─ ", $names);
-    }
+    $names = !empty($supervisorIds) ? getSupervisorNames($supervisorIds) : [];
+    $supStr = !empty($names) ? implode("、", $names) : "系統管理員 (未設定主管)";
+    $hintMsg = createBusinessFlex(
+        "SYSTEM", "系統提示", 
+        ["簽核主管" => $supStr, "後續動作" => "請將上方申請單「轉傳」給簽核主管"], 
+        "#17A2B8"
+    );
 
     // 5. 產生商務版訊息
     $liffId = getenv("MENU_LIFF_ID");
@@ -82,11 +84,6 @@ try {
             "────────────────\n" .
             "請點選下方連結進入審核中心簽核：\n" .
             $approvalLink
-    ];
-
-    $hintMsg = [
-        "type" => "text",
-        "text" => "【系統提示】\n────────────────\n" . $supervisorHint
     ];
 
     echo json_encode([

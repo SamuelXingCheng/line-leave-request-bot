@@ -221,16 +221,17 @@ class OvertimeFlowHandler {
 
         $supervisorNames = $this->getSupervisorNamesForUser($this->lineId);
 
-        $supervisorMsgText = "【系統提示】\n────────────────\n請將上方訊息轉傳給：";
-        if (!empty($supervisorNames)) {
-            $supervisorMsgText .= "\n─ " . implode("\n─ ", $supervisorNames);
-        } else {
-            $supervisorMsgText .= "\n尚未設定您的直屬主管，請聯繫管理員。";
-        }
+        $supStr = !empty($supervisorNames) ? implode("、", $supervisorNames) : "系統管理員 (未設定主管)";
+        $hintMsg = createBusinessFlex(
+            "SYSTEM", "系統提示", 
+            ["簽核主管" => $supStr, "後續動作" => "請將上方申請單「轉傳」給簽核主管"], 
+            "#17A2B8"
+        );
 
         $messages = [
-            ['type' => 'text', 'text' => $mainMsgText],
-            ['type' => 'text', 'text' => $supervisorMsgText]
+            // 將原本的純文字主訊息包裝回去，搭配新的卡片提示
+            ['type' => 'text', 'text' => $mainMsgText], 
+            $hintMsg
         ];
 
         replyMessage($this->event['replyToken'], $messages);

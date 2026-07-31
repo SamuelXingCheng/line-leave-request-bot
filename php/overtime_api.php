@@ -126,18 +126,13 @@ try {
     $supStmt->execute([$userId]);
     $supervisors = $supStmt->fetchAll(PDO::FETCH_COLUMN);
 
-    if (!empty($supervisors)) {
-        $hintText = "【系統提示】\n請將上方訊息轉傳給：\n─ " . implode("\n─ ", $supervisors);
-        $messages[] = [
-            "type" => "text",
-            "text" => $hintText
-        ];
-    } else {
-        $messages[] = [
-            "type" => "text",
-            "text" => "【系統提示】\n尚未設定您的直屬主管，請自行確認轉傳對象。"
-        ];
-    }
+    $supStr = !empty($supervisors) ? implode("、", $supervisors) : "系統管理員 (未設定主管)";
+    $hintMsg = createBusinessFlex(
+        "SYSTEM", "系統提示", 
+        ["簽核主管" => $supStr, "後續動作" => "請將上方申請單「轉傳」給簽核主管"], 
+        "#17A2B8"
+    );
+    $messages[] = $hintMsg;
 
     // 5. 回傳給前端
     echo json_encode([

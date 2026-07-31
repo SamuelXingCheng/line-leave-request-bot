@@ -172,14 +172,18 @@ try {
             $approvalLink
     ];
 
-    $hintText = "【系統提示】\n請將上方訊息轉傳給：";
-    $hintText .= !empty($supervisorNames) ? "\n─ " . implode("\n─ ", $supervisorNames) : "\n尚未設定您的直屬主管。";
-    
+    $supStr = !empty($supervisorNames) ? implode("、", $supervisorNames) : "系統管理員 (未設定主管)";
+    $hintMsg = createBusinessFlex(
+        "SYSTEM", "系統提示", 
+        ["簽核主管" => $supStr, "後續動作" => "請將上方申請單「轉傳」給簽核主管"], 
+        "#17A2B8" // 使用藍綠色做區隔
+    );
+
     echo json_encode([
          "status" => "success",
          "forward_message" => [
-             $mainMessage, 
-             ["type" => "text", "text" => $hintText]
+             $mainMessage, // 這是你之前改好的申請單卡片
+             $hintMsg      // 替換原本的純文字提示
          ]
      ]);
 
