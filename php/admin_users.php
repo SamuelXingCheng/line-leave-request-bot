@@ -268,23 +268,21 @@ if (empty($_SESSION['admin_logged_in'])) {
                     <div class="table-container mb-5">
                         <h5 id="titleClockin" class="px-4 pt-4 mb-3 fw-bold text-white" style="scroll-margin-top: 20px;">打卡紀錄</h5>
                         <table class="table table-hover mb-0">
-                            <thead class="table-dark-header"><tr><th>員工</th><th>類型</th><th>打卡時間</th><th>系統判定</th><th>主管審核</th><th>操作</th></tr></thead>
+                            <thead class="table-dark-header"><tr><th>員工</th><th>類型</th><th>打卡時間</th><th>系統判定</th><th>主管審核</th><th>原因</th><th>操作</th></tr></thead>
                             <tbody id="recClockinBody"></tbody>
                         </table>
                     </div>
-
                     <div class="table-container mb-5">
                         <h5 id="titleLeave" class="px-4 pt-4 mb-3 fw-bold text-white" style="scroll-margin-top: 20px;">假單紀錄</h5>
                         <table class="table table-hover mb-0">
-                            <thead class="table-dark-header"><tr><th>員工</th><th>假別</th><th>起始時間</th><th>結束時間</th><th>狀態</th><th>操作</th></tr></thead>
+                            <thead class="table-dark-header"><tr><th>員工</th><th>假別</th><th>起始時間</th><th>結束時間</th><th>狀態</th><th>原因</th><th>操作</th></tr></thead>
                             <tbody id="recLeaveBody"></tbody>
                         </table>
                     </div>
-
                     <div class="table-container mb-5">
                         <h5 id="titleOvertime" class="px-4 pt-4 mb-3 fw-bold text-white" style="scroll-margin-top: 20px;">加班紀錄</h5>
                         <table class="table table-hover mb-0">
-                            <thead class="table-dark-header"><tr><th>員工</th><th>起始時間</th><th>結束時間</th><th>時數</th><th>狀態</th><th>操作</th></tr></thead>
+                            <thead class="table-dark-header"><tr><th>員工</th><th>起始時間</th><th>結束時間</th><th>時數</th><th>狀態</th><th>原因</th><th>操作</th></tr></thead>
                             <tbody id="recOvertimeBody"></tbody>
                         </table>
                     </div>
@@ -742,10 +740,8 @@ if (empty($_SESSION['admin_logged_in'])) {
                             // 1. 渲染當天已有的打卡紀錄
                             dayRecords.forEach(r => {
                                 if(filterByStatus(r, 'clockin')) {
-                                    // 💡 修正一：如果被主管退件，強制將左側系統狀態顯示為「異常(fail)」
                                     const displayStatus = (r.approval_status === 'rejected') ? 'fail' : r.status;
-                                    
-                                    clockinHtml += `<tr><td><span class="fw-bold text-white">${r.user_name}</span></td><td>${r.mode}</td><td class="font-monospace text-secondary">${r.clock_time}</td><td>${getStatusBadge(displayStatus)}</td><td>${getStatusBadge(r.approval_status)}</td><td>${getActionButtons('clockin', r.id, r.approval_status, r)}</td></tr>`;
+                                    clockinHtml += `<tr><td><span class="fw-bold text-white">${r.user_name}</span></td><td>${r.mode}</td><td class="font-monospace text-secondary">${r.clock_time}</td><td>${getStatusBadge(displayStatus)}</td><td>${getStatusBadge(r.approval_status)}</td><td><span class="text-muted small">${r.reason || '-'}</span></td><td>${getActionButtons('clockin', r.id, r.approval_status, r)}</td></tr>`;
                                 }
                             });
 
@@ -754,20 +750,20 @@ if (empty($_SESSION['admin_logged_in'])) {
                             const isWorkday = isHoliday && isHoliday.type === 'workday';
                             const isOffDay = (isWeekend && !isWorkday) || (isHoliday && isHoliday.type === 'holiday');
 
-                            // 💡 修正二：計算版面佔用次數（退件的紀錄本身已經有補卡按鈕，也算佔用一個版位）
                             // 3. 判斷缺卡次數與補卡按鈕
                             if (!isOffDay) {
-                                // 2 次減去當日所有紀錄數，避免與退件列重複顯示
                                 const missingCount = Math.max(0, 2 - dayRecords.length);
                                 for (let i = 0; i < missingCount; i++) {
                                     let punchLabel = (dayRecords.length === 0 && i === 0) ? '上班' : '下班';
-                                    clockinHtml += `<tr><td><span class="fw-bold text-white">${empFilter}</span></td><td>系統偵測</td><td class="font-monospace text-secondary">${dStr} 尚未打卡 <span class="text-warning">(${punchLabel}缺卡)</span></td><td><span class="badge bg-danger px-2 py-1">異常</span></td><td><span class="badge bg-danger px-2 py-1">缺卡</span></td><td><button class="btn btn-sm btn-outline-info fw-bold" onclick="adminManualClockin('${empFilter}', '${dStr}', '${punchLabel}')">手動補卡</button></td></tr>`;
+                                    // 修正：補回缺卡時的中文提示，並補上一個空的 <td>-</td> 給原因欄位
+                                    clockinHtml += `<tr><td><span class="fw-bold text-white">${empFilter}</span></td><td>系統偵測</td><td class="font-monospace text-secondary">${dStr} 尚未打卡 <span class="text-warning">(${punchLabel}缺卡)</span></td><td><span class="badge bg-danger px-2 py-1">異常</span></td><td><span class="badge bg-danger px-2 py-1">缺卡</span></td><td>-</td><td><button class="btn btn-sm btn-outline-info fw-bold" onclick="adminManualClockin('${empFilter}', '${dStr}', '${punchLabel}')">手動補卡</button></td></tr>`;
                                 }
                             } else {
                                 // 假日且完全無任何紀錄時，顯示為休假
                                 if (dayRecords.length === 0) {
                                     const reasonStr = isHoliday ? isHoliday.name : '週末';
-                                    clockinHtml += `<tr><td><span class="fw-bold text-white">${empFilter}</span></td><td>-</td><td class="font-monospace text-danger">${dStr} (休假: ${reasonStr})</td><td>-</td><td>-</td><td>-</td></tr>`;
+                                    // 修正：多加一個 <td>-</td> 確保有 7 個欄位
+                                    clockinHtml += `<tr><td><span class="fw-bold text-white">${empFilter}</span></td><td>-</td><td class="font-monospace text-danger">${dStr} (休假: ${reasonStr})</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>`;
                                 }
                             }
                             curDate.setDate(curDate.getDate() + 1);
@@ -776,15 +772,14 @@ if (empty($_SESSION['admin_logged_in'])) {
                         // 🔵 【全體員工/預設平鋪模式】
                         const filteredClockins = json.data.clockins.filter(r => filterByStatus(r, 'clockin') && (empFilter === 'all' || r.user_name === empFilter));
                         clockinHtml = filteredClockins.map(r => {
-                            // 同步套用退件即異常的邏輯
                             const displayStatus = (r.approval_status === 'rejected') ? 'fail' : r.status;
-                            return `<tr><td><span class="fw-bold text-white">${r.user_name}</span></td><td>${r.mode}</td><td class="font-monospace text-secondary">${r.clock_time}</td><td>${getStatusBadge(displayStatus)}</td><td>${getStatusBadge(r.approval_status)}</td><td>${getActionButtons('clockin', r.id, r.approval_status, r)}</td></tr>`;
+                            return `<tr><td><span class="fw-bold text-white">${r.user_name}</span></td><td>${r.mode}</td><td class="font-monospace text-secondary">${r.clock_time}</td><td>${getStatusBadge(displayStatus)}</td><td>${getStatusBadge(r.approval_status)}</td><td><span class="text-muted small">${r.reason || '-'}</span></td><td>${getActionButtons('clockin', r.id, r.approval_status, r)}</td></tr>`;
                         }).join('');
                     }
 
                     document.getElementById('recClockinBody').innerHTML = clockinHtml || emptyRow;
-                    document.getElementById('recLeaveBody').innerHTML = filteredLeaves.map(r => `<tr><td><span class="fw-bold text-white">${r.user_name}</span></td><td>${r.leave_type}</td><td class="font-monospace text-secondary">${r.start_at}</td><td class="font-monospace text-secondary">${r.end_at}</td><td>${getStatusBadge(r.status)}</td><td>${getActionButtons('leave', r.id, r.status)}</td></tr>`).join('') || emptyRow;
-                    document.getElementById('recOvertimeBody').innerHTML = filteredOvertimes.map(r => `<tr><td><span class="fw-bold text-white">${r.user_name}</span></td><td class="font-monospace text-secondary">${r.start_at}</td><td class="font-monospace text-secondary">${r.end_at}</td><td class="fw-bold text-info">${r.hours}h</td><td>${getStatusBadge(r.status)}</td><td>${getActionButtons('overtime', r.id, r.status)}</td></tr>`).join('') || emptyRow;
+                    document.getElementById('recLeaveBody').innerHTML = filteredLeaves.map(r => `<tr><td><span class="fw-bold text-white">${r.user_name}</span></td><td>${r.leave_type}</td><td class="font-monospace text-secondary">${r.start_at}</td><td class="font-monospace text-secondary">${r.end_at}</td><td>${getStatusBadge(r.status)}</td><td><span class="text-muted small" style="max-width: 150px; display: inline-block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${r.reason || ''}">${r.reason || '-'}</span></td><td>${getActionButtons('leave', r.id, r.status)}</td></tr>`).join('') || emptyRow;
+                    document.getElementById('recOvertimeBody').innerHTML = filteredOvertimes.map(r => `<tr><td><span class="fw-bold text-white">${r.user_name}</span></td><td class="font-monospace text-secondary">${r.start_at}</td><td class="font-monospace text-secondary">${r.end_at}</td><td class="fw-bold text-info">${r.hours}h</td><td>${getStatusBadge(r.status)}</td><td><span class="text-muted small" style="max-width: 150px; display: inline-block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${r.reason || ''}">${r.reason || '-'}</span></td><td>${getActionButtons('overtime', r.id, r.status)}</td></tr>`).join('') || emptyRow;
                 }
             } catch (err) { console.error(err); }
         }
@@ -1198,17 +1193,17 @@ if (empty($_SESSION['admin_logged_in'])) {
 
                 // --- 📍 打卡紀錄 ---
                 if (data.clockins.length > 0) {
-                    html += `<h6 class="text-info fw-bold border-bottom border-info pb-1 mb-2 mt-2">📍 打卡紀錄</h6>`;
+                    html += `<h6 class="text-info fw-bold border-bottom border-info pb-1 mb-2 mt-2">打卡紀錄</h6>`;
                     html += `<table class="table table-sm table-dark table-hover mb-4">
-                        <thead class="table-dark-header"><tr><th>員工</th><th>類型</th><th>時間</th><th>狀態</th><th>操作</th></tr></thead><tbody>`;
+                        <thead class="table-dark-header"><tr><th>員工</th><th>類型</th><th>時間</th><th>狀態</th><th>原因</th><th>操作</th></tr></thead><tbody>`;
                     data.clockins.forEach(c => {
-                        // 防呆：確保 clock_time 有值才做 substring，否則顯示 --:--
                         const t = c.clock_time ? c.clock_time.substring(11, 16) : '--:--';
                         html += `<tr>
                             <td>${c.user_name}</td>
                             <td>${c.mode}</td>
                             <td class="font-monospace text-secondary">${t}</td>
                             <td>${getStatusBadge(c.approval_status === 'pending' ? 'pending' : c.status)}</td>
+                            <td><span class="text-muted small" style="max-width: 100px; display: inline-block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${c.reason || ''}">${c.reason || '-'}</span></td>
                             <td>${getActionButtons('clockin', c.id, c.approval_status, c)}</td>
                         </tr>`;
                     });
@@ -1217,11 +1212,10 @@ if (empty($_SESSION['admin_logged_in'])) {
 
                 // --- 🌴 請假紀錄 ---
                 if (data.leaves.length > 0) {
-                    html += `<h6 class="text-success fw-bold border-bottom border-success pb-1 mb-2">🌴 請假紀錄</h6>`;
+                    html += `<h6 class="text-success fw-bold border-bottom border-success pb-1 mb-2">請假紀錄</h6>`;
                     html += `<table class="table table-sm table-dark table-hover mb-4">
-                        <thead class="table-dark-header"><tr><th>員工</th><th>假別</th><th>時間區間</th><th>狀態</th><th>操作</th></tr></thead><tbody>`;
+                        <thead class="table-dark-header"><tr><th>員工</th><th>假別</th><th>時間區間</th><th>狀態</th><th>原因</th><th>操作</th></tr></thead><tbody>`;
                     data.leaves.forEach(l => {
-                        // 防呆處理
                         const st = l.start_at ? l.start_at.substring(11,16) : '--:--';
                         const et = l.end_at ? l.end_at.substring(11,16) : '--:--';
                         html += `<tr>
@@ -1229,6 +1223,7 @@ if (empty($_SESSION['admin_logged_in'])) {
                             <td>${l.leave_type}</td>
                             <td class="font-monospace text-secondary">${st} ~ ${et}</td>
                             <td>${getStatusBadge(l.status)}</td>
+                            <td><span class="text-muted small" style="max-width: 100px; display: inline-block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${l.reason || ''}">${l.reason || '-'}</span></td>
                             <td>${getActionButtons('leave', l.id, l.status)}</td>
                         </tr>`;
                     });
@@ -1237,11 +1232,10 @@ if (empty($_SESSION['admin_logged_in'])) {
 
                 // --- ⏳ 加班紀錄 ---
                 if (data.overtimes.length > 0) {
-                    html += `<h6 class="fw-bold border-bottom pb-1 mb-2" style="color:#b19cd9; border-color:#b19cd9;">⏳ 加班紀錄</h6>`;
+                    html += `<h6 class="fw-bold border-bottom pb-1 mb-2" style="color:#b19cd9; border-color:#b19cd9;">加班紀錄</h6>`;
                     html += `<table class="table table-sm table-dark table-hover mb-4">
-                        <thead class="table-dark-header"><tr><th>員工</th><th>時間區間</th><th>時數</th><th>狀態</th><th>操作</th></tr></thead><tbody>`;
+                        <thead class="table-dark-header"><tr><th>員工</th><th>時間區間</th><th>時數</th><th>狀態</th><th>原因</th><th>操作</th></tr></thead><tbody>`;
                     data.overtimes.forEach(o => {
-                        // 防呆處理
                         const st = o.start_at ? o.start_at.substring(11,16) : '--:--';
                         const et = o.end_at ? o.end_at.substring(11,16) : '--:--';
                         html += `<tr>
@@ -1249,6 +1243,7 @@ if (empty($_SESSION['admin_logged_in'])) {
                             <td class="font-monospace text-secondary">${st} ~ ${et}</td>
                             <td class="fw-bold text-info">${o.hours}h</td>
                             <td>${getStatusBadge(o.status)}</td>
+                            <td><span class="text-muted small" style="max-width: 100px; display: inline-block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${o.reason || ''}">${o.reason || '-'}</span></td>
                             <td>${getActionButtons('overtime', o.id, o.status)}</td>
                         </tr>`;
                     });

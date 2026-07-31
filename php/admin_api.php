@@ -192,29 +192,29 @@ try {
             $limitClause = ""; // 有選日期區間，就解除 100 筆限制
         }
 
-        // 1. 抓取假單
+        // 1. 請假 (補上 lr.reason)
         $stmtL = $db->prepare("
-            SELECT lr.id, lr.leave_type, lr.start_at, lr.end_at, lr.status, lr.created_at, u.name AS user_name 
-            FROM leave_requests lr JOIN users u ON lr.user_id = u.user_id 
-            $whereLeave ORDER BY lr.start_at DESC $limitClause
+            SELECT lr.id, lr.leave_type, lr.start_at, lr.end_at, lr.status, lr.created_at, lr.reason, u.name AS user_name 
+             FROM leave_requests lr JOIN users u ON lr.user_id = u.user_id 
+             $whereLeave ORDER BY lr.start_at DESC $limitClause
         ");
         $stmtL->execute($params);
         $leaves = $stmtL->fetchAll(PDO::FETCH_ASSOC);
         
-        // 2. 抓取加班單
+        // 2. 加班 (補上 o.reason)
         $stmtO = $db->prepare("
-            SELECT o.id, o.start_at, o.end_at, o.hours, o.status, o.created_at, u.name AS user_name 
-            FROM overtime_requests o JOIN users u ON o.user_id = u.user_id 
-            $whereOt ORDER BY o.start_at DESC $limitClause
+            SELECT o.id, o.start_at, o.end_at, o.hours, o.status, o.created_at, o.reason, u.name AS user_name 
+             FROM overtime_requests o JOIN users u ON o.user_id = u.user_id 
+             $whereOt ORDER BY o.start_at DESC $limitClause
         ");
         $stmtO->execute($params);
         $overtimes = $stmtO->fetchAll(PDO::FETCH_ASSOC);
         
-        // 3. 抓取打卡紀錄 (利用 SQL 直接組合出 補打卡/上班 的格式)
+        // 3. 打卡 (補上 a.reason)
         $stmtC = $db->prepare("
-            SELECT a.id, IF(a.reason LIKE '%補%', CONCAT('補打卡/', a.mode), a.mode) AS mode, a.created_at AS clock_time, a.status, a.approval_status, u.name AS user_name 
-            FROM attendance_logs a JOIN users u ON a.user_id = u.user_id 
-            $whereCk ORDER BY a.created_at DESC $limitClause
+            SELECT a.id, IF(a.reason LIKE '%補%', CONCAT('補打卡/', a.mode), a.mode) AS mode, a.created_at AS clock_time, a.status, a.approval_status, a.reason, u.name AS user_name 
+             FROM attendance_logs a JOIN users u ON a.user_id = u.user_id 
+             $whereCk ORDER BY a.created_at DESC $limitClause
         ");
         $stmtC->execute($params);
         $clockins = $stmtC->fetchAll(PDO::FETCH_ASSOC);
