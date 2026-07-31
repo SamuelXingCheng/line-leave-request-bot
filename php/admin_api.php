@@ -132,13 +132,13 @@ try {
         $stmtEmp = $db->query("SELECT COUNT(*) FROM users WHERE start_date IS NOT NULL AND is_archived = 0");
         $totalEmp = $stmtEmp->fetchColumn();
 
-        // 2. 今日請假人數與名單
+        // 2. 今日請假人數
         $stmtLeave = $db->prepare("
-            SELECT u.name, lr.leave_type 
-            FROM leave_requests lr 
-            JOIN users u ON lr.user_id = u.user_id 
-            WHERE lr.status = 'approved' 
-            AND DATE(lr.start_at) <= ? AND DATE(lr.end_at) >= ?
+            SELECT u.name, lr.leave_type, lr.start_at, lr.end_at, lr.reason
+             FROM leave_requests lr 
+             JOIN users u ON lr.user_id = u.user_id 
+             WHERE lr.status = 'approved' 
+             AND DATE(lr.start_at) <= ? AND DATE(lr.end_at) >= ?
         ");
         $stmtLeave->execute([$today, $today]);
         $leavesToday = $stmtLeave->fetchAll(PDO::FETCH_ASSOC);

@@ -544,6 +544,42 @@ if (empty($_SESSION['admin_logged_in'])) {
             } catch (err) { alert("系統錯誤，無法連線。"); }
         }
 
+        // 顯示看板請假明細
+        function showDashLeaveDetail(name, type, start, end, reason) {
+            document.getElementById('dayDetailTitle').innerText = `${name} - 請假明細`;
+            
+            const html = `
+                <table class="table table-dark table-bordered mt-2">
+                    <tbody>
+                        <tr><th style="width: 100px;" class="text-secondary">員工姓名</th><td>${name}</td></tr>
+                        <tr><th class="text-secondary">假別類型</th><td>${type}</td></tr>
+                        <tr><th class="text-secondary">時間區間</th><td class="font-monospace text-info">${start} ~ ${end}</td></tr>
+                        <tr><th class="text-secondary">請假原因</th><td>${reason || '-'}</td></tr>
+                    </tbody>
+                </table>
+            `;
+            document.getElementById('dayDetailBody').innerHTML = html;
+            bsDayDetailModal.show();
+        }
+
+        // 顯示看板請假明細
+        function showDashLeaveDetail(name, type, start, end, reason) {
+            document.getElementById('dayDetailTitle').innerText = `${name} - 請假明細`;
+            
+            const html = `
+                <table class="table table-dark table-bordered mt-2">
+                    <tbody>
+                        <tr><th style="width: 100px;" class="text-secondary">員工姓名</th><td>${name}</td></tr>
+                        <tr><th class="text-secondary">假別類型</th><td>${type}</td></tr>
+                        <tr><th class="text-secondary">時間區間</th><td class="font-monospace text-info">${start} ~ ${end}</td></tr>
+                        <tr><th class="text-secondary">請假原因</th><td>${reason || '-'}</td></tr>
+                    </tbody>
+                </table>
+            `;
+            document.getElementById('dayDetailBody').innerHTML = html;
+            bsDayDetailModal.show();
+        }
+
         // 👇 替換整個 loadDashboard 函式：
         async function loadDashboard() {
             try {
@@ -596,10 +632,23 @@ if (empty($_SESSION['admin_logged_in'])) {
                     
                     let leaveHtml = '';
                     if (leavesToday.length > 0) {
-                        leaveHtml = leavesToday.map(l => `<div class="badge border border-warning text-warning mb-2 d-block text-start p-2" style="font-size:0.85rem;">${l.name} - ${l.leave_type}</div>`).join('');
+                        leaveHtml = leavesToday.map(l => {
+                            // 轉換時間格式，並處理單引號以防 JS 報錯
+                            const st = l.start_at ? l.start_at.substring(0, 16) : '';
+                            const et = l.end_at ? l.end_at.substring(0, 16) : '';
+                            const safeReason = (l.reason || '').replace(/'/g, "\\'").replace(/"/g, "&quot;");
+                            
+                            return `<div class="badge border border-warning text-warning mb-2 d-block text-start p-2" 
+                                         style="font-size:0.85rem; cursor:pointer; transition: background-color 0.2s;" 
+                                         onmouseover="this.style.backgroundColor='#332800'" 
+                                         onmouseout="this.style.backgroundColor='transparent'"
+                                         onclick="showDashLeaveDetail('${l.name}', '${l.leave_type}', '${st}', '${et}', '${safeReason}')">
+                                        ${l.name} - ${l.leave_type} <span class="float-end text-muted">🔍</span>
+                                    </div>`;
+                        }).join('');
                     }
                     document.getElementById('dashLeaveList').innerHTML = leaveHtml || '<div class="text-muted small">無人請假</div>';
-
+                    
                     // --- 4. 處理「今日相關」的待審核單據 ---
                     const pendingCk = todaysClockins.filter(c => c.approval_status === 'pending');
                     const pendingLv = jsonRec.data.leaves.filter(l => l.status === 'pending');
